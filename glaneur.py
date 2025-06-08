@@ -1,15 +1,43 @@
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-from typing import List, Set
+from urllib.parse import urljoin, urlparse
+from typing import List, Set, Dict
 import time
 import random
+from robotexclusionrulesparser import RobotExclusionRulesParser
 
-def crawl_pages(url_list: List[str], max_pages: int = 100) -> Set[str]:
-    min_delay: float = 1.0
-    max_delay: float = 3.0
+robots_parser_cache: Dict[str, RobotExclusionRulesParser] = {}
+visited_urls: Set[str] = set()
+USER_AGENT = "CleaGlaneur/1.0"
+HEADERS = {"User-Agent": USER_AGENT}
 
-    visited_urls = set()
+# get the robots.txt parser for a given URL
+def get_robots_parser(url: str) -> RobotExclusionRulesParser:
+    parsed = urlparse(url)
+    domain = f"{parsed.scheme}://{parsed.netloc}"
+    
+    if domain not in robots_parser_cache:
+        parser = RobotExclusionRulesParser()
+        try:
+            robots_url = f"{domain}/robots.txt"
+            response = requests.get(robots_url, headers=HEADERS, timeout=10)
+            parser.parse(response.text)
+        except Exception as e:
+            print(f"Error fetching robots.txt for {domain}: {str(e)}")
+            # can't fetch robots.txt, assume everything is allowed
+            parser.parse("")
+        
+        robots_parser_cache[domain] = parser
+        
+    return robots_parser_cache[domain]
+
+# check if the URL is allowed by robots.txt
+def is_allowed(url: str) -> bool:
+    parser = get_robots_parser(url)
+    return parser.is_allowed(USER_AGENT, url)
+
+# crawl a list of URLs and extract links
+def crawl_pages(url_list: List[str], max_pages: int = 100, min_delay: float = 1.0, max_delay: float = 3.0) -> Set[str]:
     to_visit = set(url_list)
     all_links = set()
     page_count = 0
@@ -18,6 +46,10 @@ def crawl_pages(url_list: List[str], max_pages: int = 100) -> Set[str]:
         current_url = to_visit.pop()
         
         if current_url in visited_urls:
+            continue
+        
+        if not is_allowed(current_url):
+            print(f"Skipping {current_url} (not allowed by robots.txt)")
             continue
             
         print(f"Crawling: {current_url}")
@@ -29,7 +61,7 @@ def crawl_pages(url_list: List[str], max_pages: int = 100) -> Set[str]:
             time.sleep(delay)
             
             # fetch and parse the webpage
-            response = requests.get(current_url, timeout=10)
+            response = requests.get(current_url, headers=HEADERS, timeout=10)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
             
@@ -58,15 +90,19 @@ def crawl_pages(url_list: List[str], max_pages: int = 100) -> Set[str]:
     print(f"\nCrawling completed. Visited {page_count} pages.")
     return all_links
 
-
 if __name__ == "__main__":
-
     urls_to_crawl = [
-        "https://python.org",
+        "https://www.wikipedia.org",
     ]
     
-    found_links = crawl_pages(urls_to_crawl, max_pages=5)
+    found_links = crawl_pages(urls_to_crawl, max_pages=2)
+
     print("\nFound links:")
     for link in sorted(found_links):
         print(link)
-
+    
+    # save links to a file
+    with open("found_links.txt", "w") as f:
+        for link in sorted(found_links):
+            f.write(link + "\n")
+    print(f"\n{len(found_links)} links saved to found_links.txt")
