@@ -1,9 +1,12 @@
+# Clawler - To crawl web pages and extract links
+
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 from typing import List, Set, Dict
 import time
 import random
+import sqlite3
 from robotexclusionrulesparser import RobotExclusionRulesParser
 
 robots_parser_cache: Dict[str, RobotExclusionRulesParser] = {}
@@ -35,6 +38,28 @@ def get_robots_parser(url: str) -> RobotExclusionRulesParser:
 def is_allowed(url: str) -> bool:
     parser = get_robots_parser(url)
     return parser.is_allowed(USER_AGENT, url)
+
+def save_urls_to_database(urls: Set[str], db_path: str = 'clea_db.db') -> None:
+    """Save crawled URLs to the database."""
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        
+        for url in urls:
+            cursor.execute('''
+            INSERT OR IGNORE INTO crawled_urls (url)
+            VALUES (?)
+            ''', (url,))
+        
+        conn.commit()
+        print(f"Saved {len(urls)} URLs to database")
+        
+    except Exception as e:
+        print(f"Error saving URLs to database: {str(e)}")
+        conn.rollback()
+    
+    finally:
+        conn.close()
 
 # crawl a list of URLs and extract links
 def crawl_pages(url_list: List[str], max_pages: int = 100, min_delay: float = 1.0, max_delay: float = 3.0) -> Set[str]:
@@ -92,17 +117,19 @@ def crawl_pages(url_list: List[str], max_pages: int = 100, min_delay: float = 1.
 
 if __name__ == "__main__":
     urls_to_crawl = [
-        "https://www.wikipedia.org",
+        "https://www.python.org",
     ]
-    
-    found_links = crawl_pages(urls_to_crawl, max_pages=2)
+
+    # init if not already
+    from init_db import init_database
+    init_database()
+
+    found_links = crawl_pages(urls_to_crawl, max_pages=1)
 
     print("\nFound links:")
     for link in sorted(found_links):
         print(link)
     
-    # save links to a file
-    with open("found_links.txt", "w") as f:
-        for link in sorted(found_links):
-            f.write(link + "\n")
-    print(f"\n{len(found_links)} links saved to found_links.txt")
+    # Save links to database instead of text file
+    save_urls_to_database(found_links)
+    print(f"\n{len(found_links)} links saved to database")

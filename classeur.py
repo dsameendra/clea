@@ -19,32 +19,6 @@ import random
 stemmer = PorterStemmer()
 STOP_WORDS = set(stopwords.words('english'))
 
-# Init the SQLite database
-def init_database(db_path: str = 'search_index.db') -> None:
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS webpages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        url TEXT UNIQUE,
-        title TEXT,
-        snippet TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-    ''')
-
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS word_index (
-        word TEXT PRIMARY KEY,
-        webpage_ids TEXT,  -- JSON array of webpage IDs
-        webpage_frequencies TEXT  -- JSON object mapping webpage_id to frequency
-    )
-    ''')
-
-    conn.commit()
-    conn.close()
-
 def clean_title(text: str) -> str:
     """Clean title keeping capitalization."""
     # Remove HTML tags
@@ -80,7 +54,7 @@ def tokenize_and_stem(text: str) -> List[str]:
     
     return processed_words
 
-def find_best_snippet(text: str, max_length: int = 250) -> str:
+def find_best_snippet(text: str, max_length: int = 200) -> str:
     """Find the most relevant snippet from text"""
     # Split text into sentences
     sentences = re.split(r'(?<=[.!?])\s+', text)
@@ -139,7 +113,7 @@ def extract_page_info(url: str, query_words: List[str] = None) -> Tuple[str, str
         text = re.sub(r'[\n\r\t]+', ' ', text)
         text = ' '.join(text.split())
         
-        snippet = find_best_snippet(text, query_words)
+        snippet = find_best_snippet(text)
         
         return title, snippet, text
         
@@ -182,7 +156,7 @@ def update_word_index(word: str, webpage_id: int, frequency: int, conn: sqlite3.
         print(f"Error updating word index for {word}: {str(e)}")
         raise
 
-def index_webpage(url: str, db_path: str = 'search_index.db') -> None:
+def index_webpage(url: str, db_path: str = 'clea_db.db') -> None:
     """Index a webpage: extract information, process text, and store in database."""
     title, snippet, full_text = extract_page_info(url)
     if not full_text:
@@ -209,6 +183,11 @@ def index_webpage(url: str, db_path: str = 'search_index.db') -> None:
         for word, freq in word_freq.items():
             update_word_index(word, webpage_id, freq, conn)
         
+        # Mark URL as indexed in crawled_urls table
+        cursor.execute('''
+        UPDATE crawled_urls SET indexed = TRUE WHERE url = ?
+        ''', (url,))
+        
         conn.commit()
         print(f"Indexed: {url}")
         
@@ -219,15 +198,32 @@ def index_webpage(url: str, db_path: str = 'search_index.db') -> None:
     finally:
         conn.close()
 
-if __name__ == "__main__":
-    init_database()
+def get_unindexed_urls(db_path: str = 'clea_db.db') -> List[str]:
+    """Get URLs from the database that haven't been indexed yet."""
+    conn = sqlite3.connect(db_path)
     try:
-        with open('found_links.txt', 'r') as f:
-            urls = f.read().splitlines()
-            for url in urls:
-                if url.strip():
-                    index_webpage(url)
-                    delay = random.uniform(0.5, 2.0)
-                    time.sleep(delay)
-    except FileNotFoundError:
-        print("found_links.txt not found. Run the crawler first.")
+        cursor = conn.cursor()
+        cursor.execute('''
+        SELECT url FROM crawled_urls WHERE indexed = FALSE
+        ''')
+        urls = [row[0] for row in cursor.fetchall()]
+        return urls
+    except Exception as e:
+        print(f"Error retrieving URLs from database: {str(e)}")
+        return []
+    finally:
+        conn.close()
+
+if __name__ == "__main__":
+    # Get URLs from database instead of text file
+    urls = get_unindexed_urls()
+    
+    if not urls:
+        print("No unindexed URLs found in database. Run the crawler first.")
+    else:
+        print(f"Found {len(urls)} URLs to index")
+        for url in urls:
+            if url.strip():
+                index_webpage(url)
+                delay = random.uniform(0.5, 2.0)
+                time.sleep(delay)
