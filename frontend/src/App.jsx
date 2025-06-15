@@ -20,11 +20,7 @@ import {
   Modal,
 } from "@mantine/core";
 import { IconSettings, IconSitemap, IconSearch } from "@tabler/icons-react";
-import {
-  motion,
-  useMotionValue,
-  AnimatePresence,
-} from "framer-motion";
+import { motion, useMotionValue, AnimatePresence } from "framer-motion";
 import "@mantine/core/styles.css";
 import "./App.css";
 
@@ -108,7 +104,7 @@ function App() {
 
       const data = await response.json();
       setResults(data.results || []);
-      
+
       // Store calculation result if present
       if (data.calculation) {
         setCalculationResult(data.calculation);
@@ -134,13 +130,13 @@ function App() {
     setCalculationResult(null);
     setIsLoading(false);
     setHasSearched(false);
-    
+
     // Scroll to the top of the page
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
+    window.scrollTo({ top: 0, behavior: "smooth" });
+
     // Focus the search input after a brief delay to allow smooth scrolling
     setTimeout(() => {
-      const searchInput = document.querySelector('.new-search-input');
+      const searchInput = document.querySelector(".new-search-input");
       if (searchInput) {
         searchInput.focus();
       }
@@ -371,8 +367,18 @@ function App() {
           <Container size="lg" py="xl">
             {/* Header with Logo and Action Icons */}
             <div className="header">
-              <Tooltip label="Click to start a new search" position="bottom" withArrow>
-                <div className="logo" onClick={resetSearch} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && resetSearch()}>
+              <Tooltip
+                label="Click to start a new search"
+                position="bottom"
+                withArrow
+              >
+                <div
+                  className="logo"
+                  onClick={resetSearch}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && resetSearch()}
+                >
                   <Title order={1} className="logo-text">
                     Clea
                   </Title>
@@ -440,7 +446,7 @@ function App() {
                       onChange={(e) => {
                         setQuery(e.target.value);
                         // When user clears the input, reset the search state
-                        if (e.target.value === '') {
+                        if (e.target.value === "") {
                           setResults([]);
                           setCalculationResult(null);
                           setHasSearched(false);
@@ -492,7 +498,9 @@ function App() {
                           <Text fw={500} className="calculator-title">
                             Calculator
                           </Text>
-                          <Badge color="orange" variant="filled" size="sm">Math</Badge>
+                          <Badge color="orange" variant="filled" size="sm">
+                            Math
+                          </Badge>
                         </Group>
                         <Text className="calculator-expression">
                           {calculationResult.expression}
@@ -552,12 +560,17 @@ function App() {
                       </Card>
                     </motion.div>
                   ))}
-                  {query && hasSearched && results.length === 0 && !isLoading && !error && !calculationResult && (
-                    <Text ta="center" className="no-results">
-                      No search results found for "
-                      <span style={{ color: "#ff8800" }}>{query}</span>"
-                    </Text>
-                  )}
+                  {query &&
+                    hasSearched &&
+                    results.length === 0 &&
+                    !isLoading &&
+                    !error &&
+                    !calculationResult && (
+                      <Text ta="center" className="no-results">
+                        No search results found for "
+                        <span style={{ color: "#ff8800" }}>{query}</span>"
+                      </Text>
+                    )}
                 </motion.div>
               </AnimatePresence>
             </Stack>
@@ -591,7 +604,7 @@ function App() {
                 <Text size="lg" fw={500}>
                   Sitemap URLs ({sitemapUrls.length})
                 </Text>
-                 <Button
+                <Button
                   onClick={loadSitemap}
                   variant="light"
                   style={{ alignSelf: "flex-end" }}
@@ -680,22 +693,21 @@ function App() {
               </Text>
 
               {/* Single URL */}
-                <TextInput
-                  placeholder="Enter URL to add..."
-                  value={newUrl}
-                  onChange={(e) => setNewUrl(e.target.value)}
-                  style={{ flex: 1 }}
-                />
-                <Button
-                  onClick={() => addUrlToSitemap(newUrl)}
-                  loading={isAddingUrl}
-                  disabled={!newUrl.trim()}
-                  className="glass-button"
-                  loaderProps={{ size: "sm" }}
-                  
-                >
-                  <span className="button-text">Add URL</span>
-                </Button>
+              <TextInput
+                placeholder="Enter URL to add..."
+                value={newUrl}
+                onChange={(e) => setNewUrl(e.target.value)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                onClick={() => addUrlToSitemap(newUrl)}
+                loading={isAddingUrl}
+                disabled={!newUrl.trim()}
+                className="glass-button"
+                loaderProps={{ size: "sm" }}
+              >
+                <span className="button-text">Add URL</span>
+              </Button>
 
               {/* Multiple URLs */}
               <Textarea
@@ -781,7 +793,7 @@ function App() {
                 </Button>
               </Group>
               <Group gap="md" wrap="wrap">
-              <Button
+                <Button
                   onClick={forceIndex}
                   loading={isIndexing}
                   color="violet"

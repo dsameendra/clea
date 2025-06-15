@@ -26,12 +26,14 @@ Clea is a modern, self-hosted search engine with web crawling capabilities, desi
 Clea is built using a modern tech stack:
 
 ### Backend
+
 - **Flask**: Lightweight Python web framework
 - **SQLite**: Database for storing indexed content and site information
 - **BeautifulSoup**: HTML parsing and content extraction
 - **NLTK**: Natural language processing for better search results
 
 ### Frontend
+
 - **React**: Modern UI library
 - **Mantine UI**: Component library for consistent styling
 - **Framer Motion**: Animation library for smooth transitions
@@ -48,17 +50,20 @@ Clea is built using a modern tech stack:
 ### Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/dsameendra/clea.git
    cd clea
    ```
 
 2. Install Python dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
 
 3. Set up NLTK data (for natural language processing):
+
    ```python
    import nltk
    nltk.download('stopwords')
@@ -66,6 +71,7 @@ Clea is built using a modern tech stack:
    ```
 
 4. Initialize the database:
+
    ```bash
    python init_db.py
    ```
@@ -79,12 +85,14 @@ Clea is built using a modern tech stack:
 ### Running Clea
 
 1. Start the backend server:
+
    ```bash
    # In the main project directory
    python clea_server.py
    ```
 
 2. Start the frontend development server:
+
    ```bash
    # In the frontend directory
    npm run dev
