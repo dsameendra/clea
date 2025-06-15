@@ -32,6 +32,17 @@ def init_database(db_path: str = 'clea_db.db') -> None:
     )
     ''')
 
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS sitemap_urls (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT UNIQUE,
+        added_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_crawled DATETIME,
+        crawl_status TEXT DEFAULT 'pending',  -- 'pending', 'crawled', 'error'
+        active BOOLEAN DEFAULT TRUE
+    )
+    ''')
+
     conn.commit()
     conn.close()
 

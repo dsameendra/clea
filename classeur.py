@@ -214,6 +214,43 @@ def get_unindexed_urls(db_path: str = 'clea_db.db') -> List[str]:
     finally:
         conn.close()
 
+def batch_index_urls(urls: List[str], max_pages: int = 100, min_delay: float = 0.5, max_delay: float = 2.0, db_path: str = 'clea_db.db') -> int:
+    """Index multiple URLs in batch with a delay between requests.
+    
+    Args:
+        urls: List of URLs to index
+        max_pages: Maximum number of pages to index
+        min_delay: Minimum delay between indexing requests
+        max_delay: Maximum delay between indexing requests
+        db_path: Path to database
+        
+    Returns:
+        Number of successfully indexed pages
+    """
+    if not urls:
+        print("No URLs to index.")
+        return 0
+    
+    print(f"Starting batch indexing of {len(urls)} URLs (max: {max_pages})...")
+    indexed_count = 0
+    
+    for url in urls[:max_pages]:
+        if url.strip():
+            print(f"Indexing URL: {url}")
+            try:
+                index_webpage(url, db_path)
+                indexed_count += 1
+            except Exception as e:
+                print(f"Error during batch indexing of {url}: {str(e)}")
+            
+            # Add delay between requests
+            delay = random.uniform(min_delay, max_delay)
+            print(f"Waiting {delay:.2f} seconds...")
+            time.sleep(delay)
+    
+    print(f"\nBatch indexing completed. Successfully indexed {indexed_count} pages.")
+    return indexed_count
+
 if __name__ == "__main__":
     # Get URLs from database instead of text file
     urls = get_unindexed_urls()
