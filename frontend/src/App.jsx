@@ -512,6 +512,16 @@ function App() {
                 <Text size="lg" fw={500}>
                   Sitemap URLs ({sitemapUrls.length})
                 </Text>
+                 <Button
+                  onClick={loadSitemap}
+                  variant="light"
+                  style={{ alignSelf: "flex-end" }}
+                  loading={isLoadingSitemap}
+                  className="glass-button"
+                  loaderProps={{ size: "sm" }}
+                >
+                  Refresh Sitemap
+                </Button>
               </Group>
 
               {sitemapUrls.length === 0 ? (
@@ -591,7 +601,6 @@ function App() {
               </Text>
 
               {/* Single URL */}
-              <Group gap="sm">
                 <TextInput
                   placeholder="Enter URL to add..."
                   value={newUrl}
@@ -604,10 +613,10 @@ function App() {
                   disabled={!newUrl.trim()}
                   className="glass-button"
                   loaderProps={{ size: "sm" }}
+                  
                 >
                   <span className="button-text">Add URL</span>
                 </Button>
-              </Group>
 
               {/* Multiple URLs */}
               <Textarea
@@ -615,12 +624,12 @@ function App() {
                 value={newUrls}
                 onChange={(e) => setNewUrls(e.target.value)}
                 rows={4}
+                style={{ flex: 1 }}
               />
               <Button
                 onClick={addMultipleUrls}
                 loading={isAddingMultipleUrls}
                 disabled={!newUrls.trim()}
-                style={{ alignSelf: "flex-start" }}
                 className="glass-button"
                 loaderProps={{ size: "sm" }}
               >
@@ -641,15 +650,6 @@ function App() {
               </Text>
               <Group gap="md" wrap="wrap">
                 <Button
-                  onClick={forceCrawl}
-                  loading={isCrawling}
-                  color="orange"
-                  className="glass-button action-button"
-                  title="Crawl all URLs in sitemap regardless of previous crawl status"
-                >
-                  <span className="button-text">Force Crawl All URLs</span>
-                </Button>
-                <Button
                   onClick={crawlNewSites}
                   loading={isCrawling}
                   color="green"
@@ -659,12 +659,13 @@ function App() {
                   Crawl New Sites Only
                 </Button>
                 <Button
-                  onClick={loadSitemap}
-                  variant="light"
-                  loading={isLoadingSitemap}
-                  className="glass-button"
+                  onClick={forceCrawl}
+                  loading={isCrawling}
+                  color="orange"
+                  className="glass-button action-button"
+                  title="Crawl all URLs in sitemap regardless of previous crawl status"
                 >
-                  Refresh Sitemap
+                  <span className="button-text">Force Crawl All URLs</span>
                 </Button>
               </Group>
             </Stack>
@@ -688,8 +689,20 @@ function App() {
                   onChange={(val) => setMaxIndexPages(val)}
                   min={1}
                   max={10000}
+                  step={10}
                 />
                 <Button
+                  onClick={indexNewSites}
+                  loading={isIndexing}
+                  color="indigo"
+                  className="glass-button action-button"
+                  title="Only index pages that haven't been indexed yet"
+                >
+                  <span className="button-text">Index New Pages Only</span>
+                </Button>
+              </Group>
+              <Group gap="md" wrap="wrap">
+              <Button
                   onClick={forceIndex}
                   loading={isIndexing}
                   color="violet"
@@ -699,15 +712,6 @@ function App() {
                   <span className="button-text">
                     Force Index All Crawled Pages
                   </span>
-                </Button>
-                <Button
-                  onClick={indexNewSites}
-                  loading={isIndexing}
-                  color="indigo"
-                  className="glass-button action-button"
-                  title="Only index pages that haven't been indexed yet"
-                >
-                  <span className="button-text">Index New Pages Only</span>
                 </Button>
               </Group>
             </Stack>

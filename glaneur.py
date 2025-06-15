@@ -9,7 +9,6 @@ import random
 import sqlite3
 from datetime import datetime
 from robotexclusionrulesparser import RobotExclusionRulesParser
-from classeur import index_webpage, get_unindexed_urls
 
 robots_parser_cache: Dict[str, RobotExclusionRulesParser] = {}
 visited_urls: Set[str] = set()

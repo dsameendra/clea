@@ -4,7 +4,6 @@ from flask_cors import CORS
 from servir import search_pages
 from classeur import get_unindexed_urls, batch_index_urls
 from glaneur import (
-    add_url_to_sitemap, 
     add_urls_to_sitemap, 
     get_sitemap_urls, 
     remove_url_from_sitemap,
