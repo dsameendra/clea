@@ -5,6 +5,8 @@
 ![React](https://img.shields.io/badge/React-19.1.0-61dafb)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+> Cléa From clé (key), unlocking answers.
+
 Clea is a modern, self-hosted search engine with web crawling capabilities, designed to provide personalized search functionality across websites you care about. With a sleek, modern UI and powerful backend, Clea makes discovering and organizing web content easy.
 
 ![Clea Screenshot](clea_screenshot.png)
