@@ -34,6 +34,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [calculationResult, setCalculationResult] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
 
   // Sitemap state
   const [sitemapUrls, setSitemapUrls] = useState([]);
@@ -96,6 +97,8 @@ function App() {
 
     setIsLoading(true);
     setError(null);
+    setHasSearched(true);
+    setHasSearched(true);
 
     try {
       const response = await fetch(
@@ -120,6 +123,28 @@ function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Reset search state
+  const resetSearch = () => {
+    // Clear all search-related state
+    setQuery("");
+    setResults([]);
+    setError(null);
+    setCalculationResult(null);
+    setIsLoading(false);
+    setHasSearched(false);
+    
+    // Scroll to the top of the page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Focus the search input after a brief delay to allow smooth scrolling
+    setTimeout(() => {
+      const searchInput = document.querySelector('.new-search-input');
+      if (searchInput) {
+        searchInput.focus();
+      }
+    }, 500);
   };
 
   // Sitemap functions
@@ -346,11 +371,13 @@ function App() {
           <Container size="lg" py="xl">
             {/* Header with Logo and Action Icons */}
             <div className="header">
-              <div className="logo">
-                <Title order={1} className="logo-text">
-                  Clea
-                </Title>
-              </div>
+              <Tooltip label="Click to start a new search" position="bottom" withArrow>
+                <div className="logo" onClick={resetSearch} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && resetSearch()}>
+                  <Title order={1} className="logo-text">
+                    Clea
+                  </Title>
+                </div>
+              </Tooltip>
               <div className="actions">
                 <Tooltip label="Sitemap">
                   <ActionIcon
@@ -410,7 +437,15 @@ function App() {
                       type="text"
                       placeholder="Search the web..."
                       value={query}
-                      onChange={(e) => setQuery(e.target.value)}
+                      onChange={(e) => {
+                        setQuery(e.target.value);
+                        // When user clears the input, reset the search state
+                        if (e.target.value === '') {
+                          setResults([]);
+                          setCalculationResult(null);
+                          setHasSearched(false);
+                        }
+                      }}
                       className="new-search-input"
                     />
                     <button
@@ -517,7 +552,7 @@ function App() {
                       </Card>
                     </motion.div>
                   ))}
-                  {query && results.length === 0 && !isLoading && !error && (
+                  {query && hasSearched && results.length === 0 && !isLoading && !error && !calculationResult && (
                     <Text ta="center" className="no-results">
                       No search results found for "
                       <span style={{ color: "#ff8800" }}>{query}</span>"
