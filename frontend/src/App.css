@@ -998,3 +998,32 @@
   display: none;
 }
 
+/* Calculator Result Styling */
+.calculator-card {
+  border-left: 3px solid #ff8800 !important;
+}
+
+.calculator-title {
+  color: #ff8800;
+  font-size: 1.1rem;
+  margin-bottom: 0;
+}
+
+.calculator-expression {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'Courier New', monospace;
+  font-size: 0.95rem;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(30, 30, 30, 0.4);
+  border-radius: 6px;
+}
+
+.calculator-answer {
+  color: #ff8800;
+  font-family: 'Courier New', monospace;
+  font-size: 1.3rem;
+  font-weight: 700;
+  padding-left: 12px;
+}
+

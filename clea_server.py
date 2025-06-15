@@ -10,6 +10,8 @@ from glaneur import (
     crawl_from_sitemap
 )
 import sqlite3
+import re
+import math
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -21,6 +23,19 @@ def api_search():
     max_results = int(request.args.get('max_results', '10'))
     
     try:
+        # Check if the query is a math expression
+        if is_math_query(query):
+            math_result = solve_math_query(query)
+            if math_result:
+                # If it's a valid math expression, return the calculation result
+                return jsonify({
+                    'query': query,
+                    'calculation': math_result,
+                    'results': [],  # Empty list for regular search results
+                    'total': 0
+                })
+        
+        # If not a math query or calculation failed, perform regular search
         results = search_pages(query, max_results=max_results) if query else []
         return jsonify({
             'query': query,
@@ -192,6 +207,125 @@ def index_new():
             'index_type': 'new_only'
         })
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def is_math_query(query):
+    """
+    Check if the query is a mathematical expression.
+    This function looks for patterns that indicate a math problem:
+    - Contains numbers and operators
+    - No excess text that would suggest it's not a calculation
+    """
+    # Remove whitespace and convert to lowercase
+    cleaned_query = query.strip().lower()
+    
+    # Basic pattern matching for math expressions
+    # Looks for: numbers, operators, parentheses, common math functions
+    math_pattern = r'^[\s0-9+\-*/().,%^√πe\s]+$'
+    
+    # Check for specific math keywords
+    math_keywords = ['sqrt', 'sin', 'cos', 'tan', 'log', 'ln']
+    has_math_keyword = any(keyword in cleaned_query for keyword in math_keywords)
+    
+    # Check if query matches the pattern or contains math keywords
+    is_math_expression = bool(re.match(math_pattern, cleaned_query)) or has_math_keyword
+    
+    # Ensure it contains at least one number and one operator
+    has_number = bool(re.search(r'\d', cleaned_query))
+    has_operator = bool(re.search(r'[+\-*/^]', cleaned_query))
+    
+    return is_math_expression and (has_number and (has_operator or has_math_keyword))
+
+def safe_eval(expr):
+    """
+    Safely evaluate a mathematical expression.
+    Uses a whitelist approach to only allow specific math operations.
+    """
+    # Replace common math notations with Python equivalents
+    expr = expr.replace('^', '**')  # Convert caret to Python power operator
+    expr = expr.replace('√', 'math.sqrt')  # Convert root symbol
+    expr = expr.replace('π', 'math.pi')  # Convert pi symbol
+    expr = expr.replace('pi', 'math.pi')  # Convert pi text
+    
+    # Replace common math functions
+    expr = re.sub(r'sqrt\(', 'math.sqrt(', expr)
+    expr = re.sub(r'sin\(', 'math.sin(', expr)
+    expr = re.sub(r'cos\(', 'math.cos(', expr)
+    expr = re.sub(r'tan\(', 'math.tan(', expr)
+    expr = re.sub(r'log\(', 'math.log10(', expr)
+    expr = re.sub(r'ln\(', 'math.log(', expr)
+    
+    # Create a safe local scope with only math functions
+    safe_locals = {
+        'math': math,
+        'abs': abs,
+        'round': round,
+        'min': min,
+        'max': max
+    }
+    
+    try:
+        # Use eval in a limited scope
+        result = eval(expr, {'__builtins__': {}}, safe_locals)
+        return result
+    except Exception as e:
+        # If evaluation fails, return None
+        return None
+
+def solve_math_query(query):
+    """
+    Solve a mathematical query and format the result.
+    """
+    # Clean the query
+    query = query.strip()
+    
+    try:
+        # Evaluate the expression
+        result = safe_eval(query)
+        
+        if result is not None:
+            # Format the result
+            if isinstance(result, int) or result.is_integer():
+                formatted_result = str(int(result))
+            else:
+                # Round to a reasonable number of decimal places for display
+                formatted_result = str(round(result, 10)).rstrip('0').rstrip('.')
+            
+            return {
+                'type': 'calculation',
+                'expression': query,
+                'result': formatted_result
+            }
+    except Exception:
+        pass
+    
+    return None
+
+@app.route('/api/solve', methods=['POST'])
+def api_solve():
+    """API endpoint for solving mathematical expressions."""
+    data = request.get_json() or {}
+    query = data.get('q', '')
+    
+    if not query:
+        return jsonify({'error': 'No query provided'}), 400
+    
+    try:
+        # Check if it's a math query
+        if is_math_query(query):
+            # Solve the math query
+            solution = solve_math_query(query)
+            
+            return jsonify({
+                'query': query,
+                'solution': solution
+            })
+        else:
+            return jsonify({
+                'query': query,
+                'solution': 'Not a mathematical query'
+            })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

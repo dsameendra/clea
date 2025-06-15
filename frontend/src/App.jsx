@@ -33,6 +33,7 @@ function App() {
   const [results, setResults] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [calculationResult, setCalculationResult] = useState(null);
 
   // Sitemap state
   const [sitemapUrls, setSitemapUrls] = useState([]);
@@ -104,6 +105,13 @@ function App() {
 
       const data = await response.json();
       setResults(data.results || []);
+      
+      // Store calculation result if present
+      if (data.calculation) {
+        setCalculationResult(data.calculation);
+      } else {
+        setCalculationResult(null);
+      }
     } catch (err) {
       setError(
         "Failed to perform search. Please ensure the search server is running."
@@ -427,6 +435,42 @@ function App() {
                 </Text>
               )}
 
+              {/* Calculator Result */}
+              {calculationResult && (
+                <motion.div
+                  className="results-container"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                  >
+                    <Card
+                      className="result-card calculator-card glass-panel"
+                      radius="md"
+                      p="xs"
+                    >
+                      <Stack gap={5}>
+                        <Group position="apart" align="center" noWrap>
+                          <Text fw={500} className="calculator-title">
+                            Calculator
+                          </Text>
+                          <Badge color="orange" variant="filled" size="sm">Math</Badge>
+                        </Group>
+                        <Text className="calculator-expression">
+                          {calculationResult.expression}
+                        </Text>
+                        <Text className="calculator-answer">
+                          = {calculationResult.result}
+                        </Text>
+                      </Stack>
+                    </Card>
+                  </motion.div>
+                </motion.div>
+              )}
+
               {/* Results Section */}
               <AnimatePresence>
                 <motion.div
@@ -475,7 +519,7 @@ function App() {
                   ))}
                   {query && results.length === 0 && !isLoading && !error && (
                     <Text ta="center" className="no-results">
-                      No results found for "
+                      No search results found for "
                       <span style={{ color: "#ff8800" }}>{query}</span>"
                     </Text>
                   )}
