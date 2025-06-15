@@ -1,4 +1,4 @@
-# Clea: A Modern Search Engine
+# Clea: A Search Engine
 
 ![Clea Search Engine](https://img.shields.io/badge/Clea-Search%20Engine-orange)
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
@@ -15,7 +15,7 @@ Clea is a modern, self-hosted search engine with web crawling capabilities, desi
 - **Custom Site Management**: Add, remove, and manage sites to be crawled and indexed
 - **Intelligent Search**: Finds relevant results based on content matching and relevance scoring
 - **Modern UI**: Clean, responsive interface built with React and Mantine UI components
-- **Full-Text Search**: Indexes and searches the full content of web pages
+- **Full-Text Search**: Indexes and searches use the full-text searching
 - **Robots.txt Compliance**: Respects website crawling directives
 - **Customizable Indexing**: Control how many pages are crawled per site
 
@@ -47,7 +47,7 @@ Clea is built using a modern tech stack:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/clea.git
+   git clone https://github.com/dsameendra/clea.git
    cd clea
    ```
 
@@ -106,7 +106,7 @@ Clea is built using a modern tech stack:
 
 1. Use "Force Crawl" to re-crawl all sites, even previously visited ones
 2. Use "Crawl New Sites" to only crawl sites that haven't been visited yet
-3. The system will automatically index content as it crawls
+3. The system will index content as per your command (this process is very time-consuming)
 
 ### Searching
 
