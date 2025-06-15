@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   MantineProvider,
   Container,
@@ -9,15 +9,22 @@ import {
   Text,
   Group,
   Stack,
-  Tabs,
   Table,
   Badge,
   Textarea,
   NumberInput,
   LoadingOverlay,
   Notification,
-  Alert,
+  ActionIcon,
+  Tooltip,
+  Modal,
 } from "@mantine/core";
+import { IconSettings, IconSitemap, IconSearch } from "@tabler/icons-react";
+import {
+  motion,
+  useMotionValue,
+  AnimatePresence,
+} from "framer-motion";
 import "@mantine/core/styles.css";
 import "./App.css";
 
@@ -36,7 +43,51 @@ function App() {
   const [isIndexing, setIsIndexing] = useState(false);
   const [notification, setNotification] = useState(null);
 
+  // UI state
+  const [sitemapModalOpen, setSitemapModalOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [maxIndexPages, setMaxIndexPages] = useState(10);
+  const [isAddingUrl, setIsAddingUrl] = useState(false);
+  const [isAddingMultipleUrls, setIsAddingMultipleUrls] = useState(false);
+
+  // Mouse position for glassmorphic effect
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  const searchBoxRef = useRef(null);
+
   const API_BASE = "http://localhost:6942/api";
+
+  // Effect to handle mouse movement for glassmorphic UI
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      mouseX.set(e.clientX);
+      mouseY.set(e.clientY);
+
+      // Update light effect position
+      const background = document.querySelector(".app-background");
+      if (background) {
+        const x = (e.clientX / window.innerWidth) * 100;
+        const y = (e.clientY / window.innerHeight) * 100;
+        background.style.setProperty("--x", `${x}%`);
+        background.style.setProperty("--y", `${y}%`);
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [mouseX, mouseY]);
+
+  // Load sitemap initially
+  useEffect(() => {
+    loadSitemap();
+  }, []);
+
+  // Effect to reload sitemap when modal is opened
+  useEffect(() => {
+    if (sitemapModalOpen) {
+      loadSitemap();
+    }
+  }, [sitemapModalOpen]);
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -81,6 +132,7 @@ function App() {
   };
 
   const addUrlToSitemap = async (url) => {
+    setIsAddingUrl(true);
     try {
       const response = await fetch(`${API_BASE}/sitemap`, {
         method: "POST",
@@ -100,10 +152,13 @@ function App() {
         message: "Failed to add URL to sitemap",
       });
       console.error("Add URL error:", err);
+    } finally {
+      setIsAddingUrl(false);
     }
   };
 
   const addMultipleUrls = async () => {
+    setIsAddingMultipleUrls(true);
     if (!newUrls.trim()) return;
 
     const urls = newUrls
@@ -130,6 +185,8 @@ function App() {
         message: "Failed to add URLs to sitemap",
       });
       console.error("Add URLs error:", err);
+    } finally {
+      setIsAddingMultipleUrls(false);
     }
   };
 
@@ -157,11 +214,16 @@ function App() {
 
   const forceCrawl = async () => {
     setIsCrawling(true);
+    setNotification({
+      type: "info",
+      message:
+        "Force crawling all URLs in sitemap regardless of previous status...",
+    });
     try {
       const response = await fetch(`${API_BASE}/crawl/force`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_pages: 10 }),
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) throw new Error("Failed to start force crawl");
@@ -185,11 +247,15 @@ function App() {
 
   const crawlNewSites = async () => {
     setIsCrawling(true);
+    setNotification({
+      type: "info",
+      message: "Crawling only new/pending URLs in sitemap...",
+    });
     try {
       const response = await fetch(`${API_BASE}/crawl/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_pages: 10 }),
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) throw new Error("Failed to start new crawl");
@@ -215,7 +281,7 @@ function App() {
       const response = await fetch(`${API_BASE}/index/force`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_pages: 10 }),
+        body: JSON.stringify({ max_pages: maxIndexPages }),
       });
 
       if (!response.ok) throw new Error("Failed to start force indexing");
@@ -243,7 +309,7 @@ function App() {
       const response = await fetch(`${API_BASE}/index/new`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ max_pages: 10 }),
+        body: JSON.stringify({ max_pages: maxIndexPages }),
       });
 
       if (!response.ok) throw new Error("Failed to start new indexing");
@@ -267,294 +333,419 @@ function App() {
 
   return (
     <MantineProvider withGlobalStyles withNormalizeCSS>
-      <Container size="lg" py="xl">
-        <Stack spacing="xl">
-          <Title order={2} align="center">
-            Web Crawler and Indexer
-          </Title>
+      <div className="app-background">
+        <div className="app-container">
+          <Container size="lg" py="xl">
+            {/* Header with Logo and Action Icons */}
+            <div className="header">
+              <div className="logo">
+                <Title order={1} className="logo-text">
+                  Clea
+                </Title>
+              </div>
+              <div className="actions">
+                <Tooltip label="Sitemap">
+                  <ActionIcon
+                    size="lg"
+                    className="action-icon"
+                    onClick={() => setSitemapModalOpen(true)}
+                  >
+                    <IconSitemap />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="Settings">
+                  <ActionIcon
+                    size="lg"
+                    className="action-icon"
+                    onClick={() => setSettingsModalOpen(true)}
+                  >
+                    <IconSettings />
+                  </ActionIcon>
+                </Tooltip>
+              </div>
+            </div>
 
-          {/* Notification for errors and success messages */}
-          {notification && (
-            <Alert
-              title={notification.type === "error" ? "Error" : "Success"}
-              color={notification.type === "error" ? "red" : "green"}
-              onClose={() => setNotification(null)}
-              style={{ position: "relative" }}
-            >
-              <Text size="sm">{notification.message}</Text>
-            </Alert>
-          )}
+            <Stack align="center" gap="xl" className="main-content">
+              {/* Notification for errors and success messages */}
+              <AnimatePresence>
+                {notification && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -20 }}
+                    className="notification-container"
+                  >
+                    <Notification
+                      title={
+                        notification.type === "error" ? "Error" : "Success"
+                      }
+                      color={notification.type === "error" ? "red" : "orange"}
+                      onClose={() => setNotification(null)}
+                      className="glass-notification"
+                      withCloseButton
+                      data-error={notification.type === "error"}
+                    >
+                      {notification.message}
+                    </Notification>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-          {/* Tabs for Search and Sitemap */}
-          <Tabs defaultValue="search" style={{ width: "100%" }}>
-            <Tabs.List grow>
-              <Tabs.Tab value="search">Search</Tabs.Tab>
-              <Tabs.Tab value="sitemap">Sitemap Management</Tabs.Tab>
-            </Tabs.List>
-
-            {/* Search Tab */}
-            <Tabs.Panel value="search" pt="md">
-              <Stack align="center" gap="xl">
-                <form
-                  onSubmit={handleSearch}
-                  style={{ width: "100%", maxWidth: "600px" }}
-                >
-                  <Group gap="sm">
-                    <TextInput
+              {/* Search Section */}
+              <div className="new-search-wrapper" ref={searchBoxRef}>
+                <form onSubmit={handleSearch} className="new-search-form">
+                  <div className="new-search-container">
+                    <div className="new-search-icon-wrapper">
+                      <IconSearch size={24} className="new-search-icon" />
+                    </div>
+                    <input
+                      type="text"
                       placeholder="Search the web..."
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      style={{ flex: 1 }}
-                      size="lg"
+                      className="new-search-input"
                     />
-                    <Button type="submit" loading={isLoading} size="lg">
-                      Search
-                    </Button>
-                  </Group>
+                    <button
+                      type="submit"
+                      className="new-search-button"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <span className="new-search-loading"></span>
+                      ) : (
+                        "Search"
+                      )}
+                    </button>
+                  </div>
                 </form>
+              </div>
 
-                {/* Error Message */}
-                {error && (
-                  <Text c="red" ta="center">
-                    {error}
-                  </Text>
-                )}
+              {/* Error Message */}
+              {error && (
+                <Text c="red" ta="center" className="error-text">
+                  {error}
+                </Text>
+              )}
 
-                {/* Results Section */}
-                <Stack gap="md" style={{ width: "100%" }}>
+              {/* Results Section */}
+              <AnimatePresence>
+                <motion.div
+                  className="results-container"
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ staggerChildren: 0.1 }}
+                >
                   {results.map((result, index) => (
-                    <Card key={index} withBorder shadow="sm" radius="md">
-                      <Stack gap="xs">
-                        <Text
-                          component="a"
-                          href={result.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          size="lg"
-                          c="blue"
-                          fw={500}
-                        >
-                          {result.title || result.url}
-                        </Text>
-                        <Text size="sm" c="dimmed">
-                          {result.url}
-                        </Text>
-                        <Text>{result.snippet}</Text>
-                        <Group gap="xs" c="dimmed" size="sm">
-                          <Text>Relevance: {result.relevance_score}</Text>
-                          <Text>•</Text>
-                          <Text>Matches: {result.matching_terms}</Text>
-                        </Group>
-                      </Stack>
-                    </Card>
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                    >
+                      <Card
+                        className="result-card glass-panel"
+                        radius="md"
+                        p="xs"
+                      >
+                        <Stack gap={5}>
+                          <Text
+                            component="a"
+                            href={result.url}
+                            size="lg"
+                            c="blue"
+                            fw={500}
+                            className="result-title"
+                          >
+                            {result.title || result.url}
+                          </Text>
+                          <Text size="xs" c="dimmed" className="result-url">
+                            {result.url}
+                          </Text>
+                          <Text className="result-snippet">
+                            {result.snippet}
+                          </Text>
+                          <Group gap="xs" c="dimmed" size="xs">
+                            <Text>Relevance: {result.relevance_score}</Text>
+                            <Text>•</Text>
+                            <Text>Matches: {result.matching_terms}</Text>
+                          </Group>
+                        </Stack>
+                      </Card>
+                    </motion.div>
                   ))}
                   {query && results.length === 0 && !isLoading && !error && (
-                    <Text ta="center" c="dimmed">
-                      No results found for "{query}"
+                    <Text ta="center" className="no-results">
+                      No results found for "
+                      <span style={{ color: "#ff8800" }}>{query}</span>"
                     </Text>
                   )}
-                </Stack>
-              </Stack>
-            </Tabs.Panel>
+                </motion.div>
+              </AnimatePresence>
+            </Stack>
+          </Container>
+        </div>
+      </div>
 
-            {/* Sitemap Management Tab */}
-            <Tabs.Panel value="sitemap" pt="md">
-              <Stack gap="md">
-                {/* Add URL Section */}
-                <Card withBorder shadow="sm" radius="md">
-                  <Stack gap="md">
-                    <Text size="lg" fw={500}>
-                      Add URLs to Sitemap
-                    </Text>
+      {/* Sitemap Management Modal */}
+      <Modal
+        opened={sitemapModalOpen}
+        onClose={() => setSitemapModalOpen(false)}
+        title="Sitemap Management"
+        size="xxl"
+        className="glass-modal sitemap-modal"
+        centered
+        overlayProps={{
+          opacity: 0.7,
+          blur: 8,
+        }}
+      >
+        <Stack gap="md">
+          {/* Sitemap Table */}
+          <Card
+            className="glass-panel"
+            radius="md"
+            style={{ position: "relative" }}
+          >
+            <LoadingOverlay visible={isLoadingSitemap} />
+            <Stack gap="md">
+              <Group justify="space-between">
+                <Text size="lg" fw={500}>
+                  Sitemap URLs ({sitemapUrls.length})
+                </Text>
+              </Group>
 
-                    {/* Single URL */}
-                    <Group gap="sm">
-                      <TextInput
-                        placeholder="Enter URL to add..."
-                        value={newUrl}
-                        onChange={(e) => setNewUrl(e.target.value)}
-                        style={{ flex: 1 }}
-                      />
-                      <Button
-                        onClick={() => addUrlToSitemap(newUrl)}
-                        disabled={!newUrl.trim()}
-                      >
-                        Add URL
-                      </Button>
-                    </Group>
+              {sitemapUrls.length === 0 ? (
+                <Text ta="center" className="no-items-text">
+                  No URLs in sitemap
+                </Text>
+              ) : (
+                <div className="sitemap-table-container">
+                  <Table striped highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>URL</Table.Th>
+                        <Table.Th>Status</Table.Th>
+                        <Table.Th>Last Crawled</Table.Th>
+                        <Table.Th>Actions</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {sitemapUrls.map((item) => (
+                        <Table.Tr key={item.id}>
+                          <Table.Td>
+                            <Text
+                              size="sm"
+                              style={{
+                                maxWidth: 300,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {item.url}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td>
+                            <Badge
+                              color={
+                                item.crawl_status === "crawled"
+                                  ? "green"
+                                  : item.crawl_status === "error"
+                                  ? "red"
+                                  : "blue"
+                              }
+                              variant="filled"
+                            >
+                              {item.crawl_status}
+                            </Badge>
+                          </Table.Td>
+                          <Table.Td>
+                            {item.last_crawled
+                              ? new Date(item.last_crawled).toLocaleDateString()
+                              : "Never"}
+                          </Table.Td>
+                          <Table.Td>
+                            <Button
+                              size="xs"
+                              color="red"
+                              variant="light"
+                              onClick={() => removeFromSitemap(item.url)}
+                              className="glass-button-small"
+                            >
+                              Remove
+                            </Button>
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                </div>
+              )}
+            </Stack>
+          </Card>
 
-                    {/* Multiple URLs */}
-                    <Textarea
-                      placeholder="Enter multiple URLs (one per line)..."
-                      value={newUrls}
-                      onChange={(e) => setNewUrls(e.target.value)}
-                      rows={4}
-                    />
-                    <Button
-                      onClick={addMultipleUrls}
-                      disabled={!newUrls.trim()}
-                      style={{ alignSelf: "flex-start" }}
-                    >
-                      Add Multiple URLs
-                    </Button>
-                  </Stack>
-                </Card>
+          {/* Add URL Section */}
+          <Card className="glass-panel" radius="md">
+            <Stack gap="md">
+              <Text size="lg" fw={500}>
+                Add URLs to Sitemap
+              </Text>
 
-                {/* Crawl Actions */}
-                <Card withBorder shadow="sm" radius="md">
-                  <Stack gap="md">
-                    <Text size="lg" fw={500}>
-                      Crawl Actions
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      Crawling collects web pages but doesn't make them
-                      searchable yet.
-                    </Text>
-                    <Group gap="md">
-                      <Button
-                        onClick={forceCrawl}
-                        loading={isCrawling}
-                        color="orange"
-                        title="Crawl all URLs in sitemap regardless of previous crawl status"
-                      >
-                        Force Crawl All URLs
-                      </Button>
-                      <Button
-                        onClick={crawlNewSites}
-                        loading={isCrawling}
-                        color="green"
-                        title="Only crawl URLs that haven't been crawled yet"
-                      >
-                        Crawl New Sites Only
-                      </Button>
-                      <Button
-                        onClick={loadSitemap}
-                        variant="light"
-                        loading={isLoadingSitemap}
-                      >
-                        Refresh Sitemap
-                      </Button>
-                    </Group>
-                  </Stack>
-                </Card>
-
-                {/* Index Actions */}
-                <Card withBorder shadow="sm" radius="md">
-                  <Stack gap="md">
-                    <Text size="lg" fw={500}>
-                      Index Actions
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      Indexing makes crawled pages searchable by analyzing and
-                      storing their content.
-                    </Text>
-                    <Group gap="md">
-                      <Button
-                        onClick={forceIndex}
-                        loading={isIndexing}
-                        color="violet"
-                        title="Index all crawled pages, even if previously indexed"
-                      >
-                        Force Index All Crawled Pages
-                      </Button>
-                      <Button
-                        onClick={indexNewSites}
-                        loading={isIndexing}
-                        color="indigo"
-                        title="Only index pages that haven't been indexed yet"
-                      >
-                        Index New Pages Only
-                      </Button>
-                    </Group>
-                  </Stack>
-                </Card>
-
-                {/* Sitemap Table */}
-                <Card
-                  withBorder
-                  shadow="sm"
-                  radius="md"
-                  style={{ position: "relative" }}
+              {/* Single URL */}
+              <Group gap="sm">
+                <TextInput
+                  placeholder="Enter URL to add..."
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  onClick={() => addUrlToSitemap(newUrl)}
+                  loading={isAddingUrl}
+                  disabled={!newUrl.trim()}
+                  className="glass-button"
+                  loaderProps={{ size: "sm" }}
                 >
-                  <LoadingOverlay visible={isLoadingSitemap} />
-                  <Stack gap="md">
-                    <Group justify="space-between">
-                      <Text size="lg" fw={500}>
-                        Sitemap URLs ({sitemapUrls.length})
-                      </Text>
-                    </Group>
+                  <span className="button-text">Add URL</span>
+                </Button>
+              </Group>
 
-                    {sitemapUrls.length === 0 ? (
-                      <Text ta="center" c="dimmed">
-                        No URLs in sitemap
-                      </Text>
-                    ) : (
-                      <Table striped highlightOnHover>
-                        <Table.Thead>
-                          <Table.Tr>
-                            <Table.Th>URL</Table.Th>
-                            <Table.Th>Status</Table.Th>
-                            <Table.Th>Last Crawled</Table.Th>
-                            <Table.Th>Actions</Table.Th>
-                          </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                          {sitemapUrls.map((item) => (
-                            <Table.Tr key={item.id}>
-                              <Table.Td>
-                                <Text
-                                  size="sm"
-                                  style={{
-                                    maxWidth: 300,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                  }}
-                                >
-                                  {item.url}
-                                </Text>
-                              </Table.Td>
-                              <Table.Td>
-                                <Badge
-                                  color={
-                                    item.crawl_status === "crawled"
-                                      ? "green"
-                                      : item.crawl_status === "error"
-                                      ? "red"
-                                      : "blue"
-                                  }
-                                >
-                                  {item.crawl_status}
-                                </Badge>
-                              </Table.Td>
-                              <Table.Td>
-                                {item.last_crawled
-                                  ? new Date(
-                                      item.last_crawled
-                                    ).toLocaleDateString()
-                                  : "Never"}
-                              </Table.Td>
-                              <Table.Td>
-                                <Button
-                                  size="xs"
-                                  color="red"
-                                  variant="light"
-                                  onClick={() => removeFromSitemap(item.url)}
-                                >
-                                  Remove
-                                </Button>
-                              </Table.Td>
-                            </Table.Tr>
-                          ))}
-                        </Table.Tbody>
-                      </Table>
-                    )}
-                  </Stack>
-                </Card>
-              </Stack>
-            </Tabs.Panel>
-          </Tabs>
+              {/* Multiple URLs */}
+              <Textarea
+                placeholder="Enter multiple URLs (one per line)..."
+                value={newUrls}
+                onChange={(e) => setNewUrls(e.target.value)}
+                rows={4}
+              />
+              <Button
+                onClick={addMultipleUrls}
+                loading={isAddingMultipleUrls}
+                disabled={!newUrls.trim()}
+                style={{ alignSelf: "flex-start" }}
+                className="glass-button"
+                loaderProps={{ size: "sm" }}
+              >
+                <span className="button-text">Add Multiple URLs</span>
+              </Button>
+            </Stack>
+          </Card>
+
+          {/* Crawl Actions */}
+          <Card className="glass-panel" radius="md">
+            <Stack gap="md">
+              <Text size="lg" fw={500}>
+                Crawl Actions
+              </Text>
+              <Text size="sm" className="action-description">
+                Crawling collects web pages but doesn't make them searchable
+                yet.
+              </Text>
+              <Group gap="md" wrap="wrap">
+                <Button
+                  onClick={forceCrawl}
+                  loading={isCrawling}
+                  color="orange"
+                  className="glass-button action-button"
+                  title="Crawl all URLs in sitemap regardless of previous crawl status"
+                >
+                  <span className="button-text">Force Crawl All URLs</span>
+                </Button>
+                <Button
+                  onClick={crawlNewSites}
+                  loading={isCrawling}
+                  color="green"
+                  className="glass-button action-button"
+                  title="Only crawl URLs that haven't been crawled yet"
+                >
+                  Crawl New Sites Only
+                </Button>
+                <Button
+                  onClick={loadSitemap}
+                  variant="light"
+                  loading={isLoadingSitemap}
+                  className="glass-button"
+                >
+                  Refresh Sitemap
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
+
+          {/* Index Actions */}
+          <Card className="glass-panel" radius="md">
+            <Stack gap="md">
+              <Text size="lg" fw={500}>
+                Index Actions
+              </Text>
+              <Text size="sm" className="action-description">
+                Indexing makes crawled pages searchable by analyzing and storing
+                their content.
+              </Text>
+              <Group gap="md" wrap="wrap">
+                <NumberInput
+                  label="Max Pages"
+                  description="Maximum pages to index"
+                  value={maxIndexPages}
+                  onChange={(val) => setMaxIndexPages(val)}
+                  min={1}
+                  max={10000}
+                />
+                <Button
+                  onClick={forceIndex}
+                  loading={isIndexing}
+                  color="violet"
+                  className="glass-button action-button"
+                  title="Index all crawled pages, even if previously indexed"
+                >
+                  <span className="button-text">
+                    Force Index All Crawled Pages
+                  </span>
+                </Button>
+                <Button
+                  onClick={indexNewSites}
+                  loading={isIndexing}
+                  color="indigo"
+                  className="glass-button action-button"
+                  title="Only index pages that haven't been indexed yet"
+                >
+                  <span className="button-text">Index New Pages Only</span>
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
         </Stack>
-      </Container>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        opened={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        title="Settings"
+        className="glass-modal settings-modal"
+        centered
+        overlayProps={{
+          opacity: 0.7,
+          blur: 8,
+        }}
+      >
+        <Stack gap="md">
+          <Text>Configure Clea search engine settings</Text>
+          <NumberInput
+            label="Default Max Index Pages"
+            description="Maximum number of pages to index in one operation"
+            value={maxIndexPages}
+            onChange={(val) => setMaxIndexPages(val)}
+            min={1}
+            max={10000}
+          />
+          <Button
+            onClick={() => setSettingsModalOpen(false)}
+            className="glass-button"
+            mt="md"
+          >
+            Save Settings
+          </Button>
+        </Stack>
+      </Modal>
     </MantineProvider>
   );
 }
