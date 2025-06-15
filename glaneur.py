@@ -248,8 +248,7 @@ def remove_url_from_sitemap(url: str, db_path: str = 'clea_db.db') -> bool:
     finally:
         conn.close()
 
-def crawl_from_sitemap(force_crawl: bool = False, max_pages: int = 100, 
-                      min_delay: float = 1.0, max_delay: float = 3.0, 
+def crawl_from_sitemap(force_crawl: bool = False, min_delay: float = 1.0, max_delay: float = 3.0, 
                       db_path: str = 'clea_db.db') -> Set[str]:
     """Crawl URLs from sitemap based on their status."""
     global visited_urls
@@ -258,6 +257,8 @@ def crawl_from_sitemap(force_crawl: bool = False, max_pages: int = 100,
         # Crawl all active URLs regardless of status
         urls_to_crawl = get_sitemap_urls(db_path=db_path)
         print(f"Force crawling {len(urls_to_crawl)} URLs from sitemap...")
+        # Clear visited URLs set when force crawling
+        visited_urls = set()
     else:
         # Only crawl pending URLs
         urls_to_crawl = get_sitemap_urls(status='pending', db_path=db_path)
@@ -274,9 +275,9 @@ def crawl_from_sitemap(force_crawl: bool = False, max_pages: int = 100,
     crawled_count = 0
     
     for url in url_list:
-        if crawled_count >= max_pages:
-            break
             
+        # When force_crawl is True, we crawl even if it's already visited
+        # Only check visited_urls when not forcing a crawl
         if not force_crawl and url in visited_urls:
             continue
         
@@ -364,7 +365,7 @@ if __name__ == "__main__":
         print(f"  {item['url']} - Status: {item['crawl_status']}")
     
     # Crawl pending URLs from sitemap
-    found_links = crawl_from_sitemap(force_crawl=False, max_pages=3)
+    found_links = crawl_from_sitemap(force_crawl=False)
     print(f"\nDiscovered {len(found_links)} total links from sitemap crawling")
     
     # Note: Indexing is now done directly using classeur.batch_index_urls

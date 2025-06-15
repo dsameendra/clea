@@ -207,6 +207,7 @@ def get_unindexed_urls(db_path: str = 'clea_db.db') -> List[str]:
         SELECT url FROM crawled_urls WHERE indexed = FALSE
         ''')
         urls = [row[0] for row in cursor.fetchall()]
+        # print(urls)
         return urls
     except Exception as e:
         print(f"Error retrieving URLs from database: {str(e)}")

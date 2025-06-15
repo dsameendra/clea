@@ -95,13 +95,11 @@ def force_crawl():
     """Force crawl all URLs in sitemap."""
     try:
         data = request.get_json() or {}
-        max_pages = data.get('max_pages', 10)
-        min_delay = data.get('min_delay', 1.0)
-        max_delay = data.get('max_delay', 3.0)
+        min_delay = float(data.get('min_delay', 1.0))
+        max_delay = float(data.get('max_delay', 3.0))
         
         found_links = crawl_from_sitemap(
-            force_crawl=True, 
-            max_pages=max_pages,
+            force_crawl=True,
             min_delay=min_delay,
             max_delay=max_delay
         )
@@ -120,13 +118,11 @@ def crawl_new():
     """Crawl only pending URLs in sitemap."""
     try:
         data = request.get_json() or {}
-        max_pages = data.get('max_pages', 10)
-        min_delay = data.get('min_delay', 1.0)
-        max_delay = data.get('max_delay', 3.0)
+        min_delay = float(data.get('min_delay', 1.0))
+        max_delay = float(data.get('max_delay', 3.0))
         
         found_links = crawl_from_sitemap(
-            force_crawl=False, 
-            max_pages=max_pages,
+            force_crawl=False,
             min_delay=min_delay,
             max_delay=max_delay
         )
@@ -145,9 +141,9 @@ def force_index():
     """Force index all URLs in the crawled_urls table regardless of previous indexing status."""
     try:
         data = request.get_json() or {}
-        max_pages = data.get('max_pages', 10)
-        min_delay = data.get('min_delay', 0.5)
-        max_delay = data.get('max_delay', 2.0)
+        max_pages = int(data.get('max_pages', 10))
+        min_delay = float(data.get('min_delay', 0.5))
+        max_delay = float(data.get('max_delay', 2.0))
         
         # Get all URLs from the crawled_urls table
         conn = sqlite3.connect('clea_db.db')
@@ -177,9 +173,9 @@ def index_new():
     """Index only URLs that have been crawled but not yet indexed."""
     try:
         data = request.get_json() or {}
-        max_pages = data.get('max_pages', 10)
-        min_delay = data.get('min_delay', 0.5)
-        max_delay = data.get('max_delay', 2.0)
+        max_pages = int(data.get('max_pages', 10))
+        min_delay = float(data.get('min_delay', 0.5))
+        max_delay = float(data.get('max_delay', 2.0))
         
         # Get unindexed URLs using classeur's function
         unindexed_urls = get_unindexed_urls()
