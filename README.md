@@ -21,24 +21,6 @@ Clea is a modern, self-hosted search engine with web crawling capabilities, desi
 - **Robots.txt Compliance**: Respects website crawling directives
 - **Customizable Indexing**: Control how many pages are crawled per site
 
-## Architecture
-
-Clea is built using a modern tech stack:
-
-### Backend
-
-- **Flask**: Lightweight Python web framework
-- **SQLite**: Database for storing indexed content and site information
-- **BeautifulSoup**: HTML parsing and content extraction
-- **NLTK**: Natural language processing for better search results
-
-### Frontend
-
-- **React**: Modern UI library
-- **Mantine UI**: Component library for consistent styling
-- **Framer Motion**: Animation library for smooth transitions
-- **Vite**: Fast build tool and development server
-
 ## Getting Started
 
 ### Prerequisites
