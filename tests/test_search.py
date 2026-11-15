@@ -203,9 +203,15 @@ def test_v1_database_file_is_imported_into_a_new_database(tmp_path):
 
 
 def test_contents_pages_are_not_demoted(conn):
-    # Tables of contents are link-heavy but are the right answer for navigational queries.
-    _, _ = add_doc(conn, "https://docs.example/tutorial/", "The Example Tutorial", "Contents of the example tutorial")
-    add_doc(conn, "https://docs.example/tutorial/next", "What next", "After the example tutorial, read more.")
+    # Tables of contents are link-heavy (0.6-0.8) but are the right answer for navigational queries;
+    # only near-pure link pages (generated indexes, ~0.95) are demoted.
+    add_doc(conn, "https://docs.example/tutorial/", "The Example Tutorial", "Contents: the example tutorial chapters")
+    add_doc(conn, "https://docs.example/tutorial/next", "What next", "After the example tutorial, read the library reference.")
+    for i in range(8):  # unrelated pages so that BM25 term weights are meaningful
+        add_doc(conn, f"https://docs.example/other{i}", f"Other page {i}", f"Unrelated content number {i} about gardening.")
     conn.execute("UPDATE documents SET link_density = 0.75 WHERE url = 'https://docs.example/tutorial/'")
     conn.commit()
     assert urls(servir.search(conn, "example tutorial"))[0] == "https://docs.example/tutorial/"
+    conn.execute("UPDATE documents SET link_density = 0.97 WHERE url = 'https://docs.example/tutorial/'")
+    conn.commit()
+    assert urls(servir.search(conn, "example tutorial"))[0] == "https://docs.example/tutorial/next"
