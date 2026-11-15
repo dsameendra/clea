@@ -18,8 +18,12 @@ function LoadingList() {
 
 export function Results({ query, page, state, answer, settings, onSearch, onPage, onShowAdmin, canAdmin }) {
   const { status, error } = state;
-  // A conversion like "10 km in miles" only loosely matches pages ("10", "km"); the answer is what matters.
-  const data = answer && state.data?.relaxed ? { ...state.data, results: [], total: 0, relaxed: false, suggestion: null } : state.data;
+  // With an instant answer ("10 km in miles"), loose any-word matches and spelling suggestions
+  // ("did you mean … mixes?") are noise: the answer is what matters.
+  const data =
+    answer && state.data && (state.data.relaxed || state.data.total === 0)
+      ? { ...state.data, results: [], total: 0, relaxed: false, suggestion: null }
+      : state.data;
   const loading = status === "loading";
   const total = data?.total ?? 0;
   const pages = data ? Math.min(MAX_PAGES, Math.ceil(total / data.per_page)) : 0;
