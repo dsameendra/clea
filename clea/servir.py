@@ -28,6 +28,11 @@ STOP_WORDS = frozenset(
     "a an and are as at be but by for from how if in into is it its no not of on or so such that the their then "
     "there these they this to was what when where which who why will with you your".split()
 )
+# Pages that are mostly links (generated indexes, sitemaps, link lists) match nearly every
+# term; above this share of link text their score is scaled down, by up to MAX_LINK_PENALTY.
+LINK_DENSITY_THRESHOLD = 0.5
+LINK_PENALTY_SLOPE = 1.5
+MAX_LINK_PENALTY = 0.6
 # BM25 column weights: title, description, body, url_terms.
 BM25_WEIGHTS = (20.0, 4.0, 1.0, 6.0)
 
@@ -156,7 +161,9 @@ def _run(conn: sqlite3.Connection, q: ParsedQuery, match: str | None, limit: int
         f"""SELECT d.url, d.title, d.host, d.indexed_at, d.description AS description,
                    snippet(documents_fts, 2, '{MARK_START}', '{MARK_END}', ' … ', 28) AS snippet,
                    highlight(documents_fts, 0, '{MARK_START}', '{MARK_END}') AS title_marked,
-                   bm25(documents_fts, {', '.join(map(str, BM25_WEIGHTS))}) AS score
+                   bm25(documents_fts, {', '.join(map(str, BM25_WEIGHTS))})
+                     * (1.0 - min({MAX_LINK_PENALTY}, max(0.0, d.link_density - {LINK_DENSITY_THRESHOLD}) * {LINK_PENALTY_SLOPE}))
+                     AS score
             FROM documents_fts JOIN documents d ON d.id = documents_fts.rowid
             WHERE documents_fts MATCH ? {site_sql}
             ORDER BY score LIMIT ? OFFSET ?""",

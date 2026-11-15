@@ -118,8 +118,8 @@ def test_full_site_does_not_fetch_new_pages_until_limit_is_raised(site, conn, se
     glaneur.crawl(conn, settings)
     assert len(indexed(conn)) == 3
     site.requests.clear()
-    glaneur.crawl(conn, settings)  # site is full: nothing new is fetched
-    assert [p for p in site.paths() if p not in ("/robots.txt", "/sitemap.xml")] == []
+    glaneur.crawl(conn, settings)  # site is full: only the start page is re-checked, nothing new is fetched
+    assert [p for p in site.paths() if p not in ("/robots.txt", "/sitemap.xml")] == ["/"]
     sites.update_site(conn, s["id"], max_pages=6)
     glaneur.crawl(conn, settings)
     assert len(indexed(conn)) == 6

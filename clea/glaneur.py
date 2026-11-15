@@ -4,10 +4,22 @@ Breadth-first crawl of each site, limited to the site's host and path prefix,
 a maximum depth and a page budget. Each page is fetched once: links are
 extracted and the page is indexed from the same response.
 
+Two modes:
+
+* ``new``     – find and index new pages: re-reads each site's start page (and
+               sitemaps, at most every few hours) for new links, re-fetches pages
+               whose sitemap ``<lastmod>`` is newer than our copy, then crawls
+               everything queued. Unchanged pages cost a 304.
+* ``recrawl`` – re-fetch every known page (conditional requests).
+
+Parallelism: sites are grouped by host and the groups are crawled concurrently
+(``workers`` threads, each with its own HTTP session and database connection).
+Requests to any single host stay sequential, so politeness is unaffected.
+
 Politeness: robots.txt (RFC 9309, including Crawl-delay and Sitemap lines),
 ``<meta name="robots">`` noindex/nofollow, ``rel="nofollow"`` links, a
-per-host delay, conditional requests (ETag / Last-Modified) on recrawls and an
-identifying User-Agent.
+per-host delay, conditional requests (ETag / Last-Modified) and an identifying
+User-Agent.
 """
 
 from __future__ import annotations
@@ -18,8 +30,10 @@ import re
 import sqlite3
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 
 import requests
@@ -27,8 +41,8 @@ from protego import Protego
 
 from . import classeur
 from .config import Settings
-from .db import utcnow
-from .urls import in_scope, looks_like_non_html, normalize_url
+from .db import connect, parse_iso, to_iso, utcnow
+from .urls import bare_host, in_scope, looks_like_non_html, normalize_url
 
 log = logging.getLogger("clea.crawler")
 
@@ -36,7 +50,10 @@ HTML_TYPES = ("text/html", "application/xhtml+xml")
 ROBOTS_TOKEN = "CleaBot"
 MAX_ATTEMPTS = 3
 MAX_SITEMAP_FILES = 5
-FRONTIER_FACTOR = 3  # keep at most max_pages * FRONTIER_FACTOR known URLs per site
+FRONTIER_FACTOR = 3  # keep at most max_pages * FRONTIER_FACTOR live (queued/done) URLs per site
+SITEMAP_RECHECK = timedelta(hours=6)  # "new" mode re-reads sitemaps at most this often
+MODES = ("new", "recrawl")
+SQL_CHUNK = 400  # max parameters per IN (...) query
 
 
 class Cancelled(Exception):
@@ -185,25 +202,45 @@ class RobotsCache:
 
 
 ProgressFn = Callable[[dict], None]
+COUNTER_KEYS = ("pages_fetched", "pages_indexed", "pages_skipped", "pages_failed")
+
+
+class Counters:
+    """Progress counters shared by the worker threads."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._values = dict.fromkeys(COUNTER_KEYS, 0)
+        self._current: str | None = None
+
+    def bump(self, key: str, url: str | None) -> None:
+        with self._lock:
+            self._values[key] += 1
+            self._current = url
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {**self._values, "current_url": self._current}
 
 
 class Crawler:
+    """Crawls sites one at a time. Each worker thread owns one Crawler (and its connection)."""
+
     def __init__(
         self,
         conn: sqlite3.Connection,
         settings: Settings,
         *,
         cancel: threading.Event | None = None,
-        progress: ProgressFn | None = None,
+        counters: Counters | None = None,
     ):
         self.conn = conn
         self.settings = settings
         self.cancel = cancel or threading.Event()
-        self.progress = progress or (lambda update: None)
+        self.counters = counters or Counters()
         self.fetcher = Fetcher(settings)
         self.robots = RobotsCache(self.fetcher)
         self._last_request: dict[str, float] = {}
-        self.counts = {"pages_fetched": 0, "pages_indexed": 0, "pages_skipped": 0, "pages_failed": 0}
 
     # -- helpers -------------------------------------------------------------------
 
@@ -223,22 +260,39 @@ class Crawler:
         self.conn.execute(f"UPDATE urls SET {assignments} WHERE id = ?", [*cols.values(), url_id])
 
     def _bump(self, key: str, current_url: str | None = None) -> None:
-        self.counts[key] += 1
-        self.progress({**self.counts, "current_url": current_url})
+        self.counters.bump(key, current_url)
+
+    def _frontier_room(self, site: sqlite3.Row) -> int:
+        live = self.conn.execute(
+            "SELECT COUNT(*) FROM urls WHERE site_id = ? AND status IN ('queued', 'done')", (site["id"],)
+        ).fetchone()[0]
+        return max(0, site["max_pages"] * FRONTIER_FACTOR - live)
+
+    def _enqueue_many(self, site: sqlite3.Row, urls: Iterable[str], depth: int) -> int:
+        """Queue URLs not seen before (up to the frontier limit). Returns how many were added."""
+        candidates = list(dict.fromkeys(urls))
+        if not candidates:
+            return 0
+        known: set[str] = set()
+        for i in range(0, len(candidates), SQL_CHUNK):
+            chunk = candidates[i : i + SQL_CHUNK]
+            marks = ",".join("?" * len(chunk))
+            known.update(r[0] for r in self.conn.execute(f"SELECT url FROM urls WHERE url IN ({marks})", chunk))
+        fresh = [u for u in candidates if u not in known][: self._frontier_room(site)]
+        now = utcnow()
+        self.conn.executemany(
+            "INSERT INTO urls (site_id, url, depth, status, discovered_at) VALUES (?, ?, ?, 'queued', ?) ON CONFLICT(url) DO NOTHING",
+            [(site["id"], u, depth, now) for u in fresh],
+        )
+        return len(fresh)
 
     def _enqueue(self, site: sqlite3.Row, url: str, depth: int) -> sqlite3.Row | None:
-        """Add an in-scope URL to the frontier; returns its row (new or existing)."""
-        known = self.conn.execute("SELECT COUNT(*) FROM urls WHERE site_id = ?", (site["id"],)).fetchone()[0]
-        existing = self.conn.execute("SELECT * FROM urls WHERE url = ?", (url,)).fetchone()
-        if existing or known >= site["max_pages"] * FRONTIER_FACTOR:
-            return existing
-        self.conn.execute(
-            "INSERT INTO urls (site_id, url, depth, status, discovered_at) VALUES (?, ?, ?, 'queued', ?)",
-            (site["id"], url, depth, utcnow()),
-        )
+        """Queue one URL; returns its row (new or existing), or None if the frontier is full."""
+        self._enqueue_many(site, [url], depth)
         return self.conn.execute("SELECT * FROM urls WHERE url = ?", (url,)).fetchone()
 
-    def _seed_from_sitemaps(self, site: sqlite3.Row) -> int:
+    def _read_sitemaps(self, site: sqlite3.Row) -> int:
+        """Queue new URLs from the site's sitemaps and re-queue pages whose <lastmod> is newer than our copy."""
         parts = urlsplit(site["seed_url"])
         candidates = self.robots.sitemaps(site["seed_url"]) or [f"{parts.scheme}://{parts.netloc}/sitemap.xml"]
         added, files = 0, 0
@@ -250,40 +304,59 @@ class Crawler:
             res = self.fetcher.get(sitemap_url, html=False)
             if res.status != 200 or not res.text:
                 continue
-            locs = re.findall(r"<loc>\s*(.*?)\s*</loc>", res.text, re.I | re.S)
             if "<sitemapindex" in res.text[:2000].lower():
-                candidates.extend(locs)
+                candidates.extend(re.findall(r"<loc>\s*(.*?)\s*</loc>", res.text, re.I | re.S))
                 continue
-            for loc in locs:
-                url = normalize_url(loc.replace("&amp;", "&"))
+            entries: list[tuple[str, str | None]] = []
+            for block in re.findall(r"<url>(.*?)</url>", res.text, re.I | re.S):
+                loc = re.search(r"<loc>\s*(.*?)\s*</loc>", block, re.I | re.S)
+                if not loc:
+                    continue
+                url = normalize_url(loc.group(1).replace("&amp;", "&"))
                 if url and in_scope(url, site["host"], site["path_prefix"]) and not looks_like_non_html(url):
-                    before = self.conn.total_changes
-                    self._enqueue(site, url, 1)
-                    added += self.conn.total_changes - before
+                    lastmod = re.search(r"<lastmod>\s*(.*?)\s*</lastmod>", block, re.I | re.S)
+                    moment = parse_iso(lastmod.group(1)) if lastmod else None
+                    entries.append((url, to_iso(moment) if moment else None))
+            added += self._enqueue_many(site, (u for u, _ in entries), 1)
+            self.conn.executemany(
+                "UPDATE urls SET status = 'queued' WHERE url = ? AND site_id = ? AND status = 'done' "
+                "AND (fetched_at IS NULL OR fetched_at < ?)",
+                [(u, site["id"], m) for u, m in entries if m],
+            )
+            self.conn.commit()  # never hold the write lock across the next network request
+        self.conn.execute("UPDATE sites SET sitemap_checked_at = ? WHERE id = ?", (utcnow(), site["id"]))
         self.conn.commit()
         return added
 
     # -- crawling ------------------------------------------------------------------
 
-    def crawl_site(self, site_id: int, *, recrawl: bool = False) -> None:
+    def crawl_site(self, site_id: int, *, mode: str = "new") -> None:
+        if mode not in MODES:
+            raise ValueError(f"unknown crawl mode {mode!r}")
         conn = self.conn
         site = conn.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
         if site is None:
             return
         conn.execute("UPDATE sites SET status = 'crawling', last_error = NULL WHERE id = ?", (site_id,))
-        if recrawl:
+        if mode == "recrawl":
             # Everything is re-evaluated: robots.txt, noindex, canonical or content may have changed.
             conn.execute("UPDATE urls SET status = 'queued', attempts = 0 WHERE site_id = ?", (site_id,))
+        else:
+            # Re-read the start page (and where it redirects to) so newly linked pages are found.
+            conn.execute("UPDATE urls SET status = 'queued', attempts = 0 WHERE site_id = ? AND depth = 0", (site_id,))
         conn.execute(
             "INSERT INTO urls (site_id, url, depth, status, discovered_at) VALUES (?, ?, 0, 'queued', ?) "
             "ON CONFLICT(url) DO NOTHING",
             (site_id, site["seed_url"], utcnow()),
         )
         conn.commit()
-        if site["last_crawled_at"] is None or recrawl:
-            self._seed_from_sitemaps(site)
+        checked = parse_iso(site["sitemap_checked_at"])
+        if mode == "recrawl" or checked is None or datetime.now(UTC) - checked > SITEMAP_RECHECK:
+            self._read_sitemaps(site)
 
-        budget = site["max_pages"]
+        # Safety cap on requests per run. The real limits are max_pages documents (enforced below),
+        # the frontier size and, for scheduled runs, the time limit.
+        budget = site["max_pages"] * FRONTIER_FACTOR + 10
         fetched = 0
         error = None
         try:
@@ -308,12 +381,18 @@ class Crawler:
             raise
         except Exception as exc:  # keep the site record honest if something unexpected breaks
             log.exception("crawl of %s failed", site["seed_url"])
+            conn.rollback()
             error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
             seed = conn.execute("SELECT status, reason FROM urls WHERE url = ?", (site["seed_url"],)).fetchone()
-            if error is None and seed is not None and seed["status"] == "failed":
-                error = f"Seed URL failed: {seed['reason']}"
+            if error is None and seed is not None:
+                has_docs = conn.execute("SELECT 1 FROM documents WHERE site_id = ? LIMIT 1", (site_id,)).fetchone()
+                if seed["status"] == "failed":
+                    error = f"Start page failed: {seed['reason']}"
+                elif seed["status"] == "skipped" and not has_docs and not (seed["reason"] or "").startswith("redirects to "):
+                    # e.g. the start page redirects to another domain, or robots.txt blocks it
+                    error = f"Nothing indexed: start page {seed['reason']}"
             conn.execute(
                 "UPDATE sites SET status = ?, last_error = ?, last_crawled_at = ? WHERE id = ?",
                 ("error" if error else "ok", error, utcnow(), site_id),
@@ -336,8 +415,16 @@ class Crawler:
         def follow(target: str) -> bool:
             return in_scope(target, site["host"], site["path_prefix"]) and self.robots.allowed(target)
 
+        # Conditional requests only make sense when we hold a copy: a page skipped earlier
+        # (noindex, duplicate, ...) must be downloaded again to be re-evaluated.
+        has_doc = self.conn.execute("SELECT 1 FROM documents WHERE url_id = ?", (row["id"],)).fetchone() is not None
         self._wait_turn(url)
-        res = self.fetcher.get(url, etag=row["etag"], last_modified=row["last_modified"], follow=follow)
+        res = self.fetcher.get(
+            url,
+            etag=row["etag"] if has_doc else None,
+            last_modified=row["last_modified"] if has_doc else None,
+            follow=follow,
+        )
         now = utcnow()
         self._bump("pages_fetched", url)
 
@@ -373,21 +460,21 @@ class Crawler:
             self._bump("pages_skipped", url)
             return 1
 
-        # Redirects: index under the final URL, if it is still inside the site.
+        # Redirects: index under the final URL (we already have its body), if it is inside the site.
         target = row
         final = normalize_url(res.final_url or url) or url
         if final != url:
             target = self._enqueue(site, final, row["depth"])
             self._set_url(row["id"], "skipped", f"redirects to {final}", http_status=200, fetched_at=now)
             classeur.remove_document(self.conn, row["id"])
-            if target is None or (target["status"] == "done" and target["id"] != row["id"]):
+            if target is None:  # frontier full
                 return 1
 
         page = classeur.extract(res.text)
         base = normalize_url(page.base_href, base=final) if page.base_href else final
         self._discover_links(site, target, page, base or final)
 
-        meta = {"http_status": 200, "fetched_at": now, "etag": res.etag, "last_modified": res.last_modified}
+        meta = {"http_status": 200, "fetched_at": now, "etag": res.etag, "last_modified": res.last_modified, "attempts": 0}
         canonical = normalize_url(page.canonical, base=final) if page.canonical else None
         if page.noindex:
             classeur.remove_document(self.conn, target["id"])
@@ -418,12 +505,19 @@ class Crawler:
     def _discover_links(self, site: sqlite3.Row, row: sqlite3.Row, page: classeur.Page, base: str) -> None:
         if page.nofollow or row["depth"] >= site["max_depth"]:
             return
+        urls = []
         for link in page.links:
             if link.nofollow:
                 continue
             url = normalize_url(link.href, base=base)
             if url and in_scope(url, site["host"], site["path_prefix"]) and not looks_like_non_html(url):
-                self._enqueue(site, url, row["depth"] + 1)
+                urls.append(url)
+        self._enqueue_many(site, urls, row["depth"] + 1)
+
+
+def _host_key(seed_url: str) -> str:
+    parts = urlsplit(seed_url)
+    return bare_host(parts.netloc.lower())
 
 
 def crawl(
@@ -431,27 +525,85 @@ def crawl(
     settings: Settings,
     *,
     site_ids: list[int] | None = None,
-    recrawl: bool = False,
+    mode: str = "new",
+    recrawl: bool | None = None,
+    workers: int | None = None,
     cancel: threading.Event | None = None,
     progress: ProgressFn | None = None,
     max_seconds: float | None = None,
 ) -> dict:
-    """Crawl the given sites (all sites when ``site_ids`` is None). Returns counters."""
-    crawler = Crawler(conn, settings, cancel=cancel, progress=progress)
-    ids = site_ids or [row["id"] for row in conn.execute("SELECT id FROM sites ORDER BY id")]
-    deadline = time.monotonic() + max_seconds if max_seconds else None
-    if deadline:
-        timer = threading.Timer(max_seconds, crawler.cancel.set)
+    """Crawl sites in parallel (one worker per host) and return counters.
+
+    ``site_ids=None`` means every site; an empty list means none. Sites crawled
+    longest ago go first, so a time-limited run doesn't always starve the same ones.
+    Raises ``Cancelled`` if ``cancel`` is set (but not when ``max_seconds`` runs out;
+    then ``time_limited`` is True in the result).
+    """
+    if recrawl is not None:
+        mode = "recrawl" if recrawl else "new"
+    if mode not in MODES:
+        raise ValueError(f"unknown crawl mode {mode!r}")
+    rows = conn.execute(
+        "SELECT id, seed_url FROM sites ORDER BY last_crawled_at IS NOT NULL, last_crawled_at, id"
+    ).fetchall()
+    if site_ids is not None:
+        wanted = set(site_ids)
+        rows = [r for r in rows if r["id"] in wanted]
+    counters = Counters()
+    result = {**dict.fromkeys(COUNTER_KEYS, 0), "time_limited": False, "errors": 0, "sites": len(rows)}
+    if not rows:
+        return result
+
+    groups: dict[str, list[int]] = {}
+    for r in rows:
+        groups.setdefault(_host_key(r["seed_url"]), []).append(r["id"])
+    cancel = cancel or threading.Event()
+    deadline_hit = threading.Event()
+    timer = None
+    if max_seconds:
+        def _deadline():
+            deadline_hit.set()
+            cancel.set()
+
+        timer = threading.Timer(max_seconds, _deadline)
         timer.daemon = True
         timer.start()
+
+    def run_group(ids: list[int]) -> None:
+        worker_conn = connect(settings.db_path)
+        try:
+            crawler = Crawler(worker_conn, settings, cancel=cancel, counters=counters)
+            for site_id in ids:
+                crawler.crawl_site(site_id, mode=mode)
+        finally:
+            worker_conn.close()
+
+    n_workers = max(1, min(workers or settings.crawl_workers, len(groups)))
+    report = progress or (lambda update: None)
     try:
-        for site_id in ids:
-            crawler.crawl_site(site_id, recrawl=recrawl)
-    except Cancelled:
-        if deadline is None or time.monotonic() < deadline:
-            raise
-        log.info("time budget of %ss reached; stopping crawl", max_seconds)
+        with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="clea-crawl") as pool:
+            futures = [pool.submit(run_group, ids) for ids in groups.values()]
+            pending = futures
+            while pending:
+                _, pending = wait(pending, timeout=0.5)
+                report(counters.snapshot())  # on the caller's thread, so it may use the caller's connection
     finally:
-        if deadline:
+        if timer:
             timer.cancel()
-    return crawler.counts
+
+    cancelled = False
+    for future in futures:
+        exc = future.exception()
+        if isinstance(exc, Cancelled):
+            cancelled = True
+        elif exc is not None:
+            result["errors"] += 1
+            log.error("crawl worker failed: %s", exc)
+    if cancelled and not deadline_hit.is_set():
+        raise Cancelled()
+    snapshot = counters.snapshot()
+    result.update({k: snapshot[k] for k in COUNTER_KEYS})
+    result["time_limited"] = deadline_hit.is_set()
+    if result["errors"] and result["errors"] == len(futures):
+        raise RuntimeError("every crawl worker failed; see the server log")
+    return result

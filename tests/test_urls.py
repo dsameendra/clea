@@ -43,3 +43,7 @@ def test_non_html_and_terms():
     assert looks_like_non_html("https://e.com/report.PDF")
     assert not looks_like_non_html("https://e.com/page")
     assert url_terms("https://www.flask.palletsprojects.com/en/quickstart/index.html") == "flask palletsprojects en quickstart"
+
+
+def test_google_srsltid_is_stripped():
+    assert normalize_url("https://shop.example/?srsltid=AYCX9vJ&page=2") == "https://shop.example/?page=2"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -26,11 +27,22 @@ class FixtureSite:
     def __init__(self):
         self.routes: dict[str, tuple[int, dict, str]] = {}
         self.requests: list[tuple[str, dict]] = []
+        self.timings: list[tuple[str, float, float]] = []  # (path, start, end) per request
+        self.delay = 0.0  # seconds to wait before answering (simulates a slow server)
         site = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):  # noqa: N802
+                started = time.monotonic()
                 site.requests.append((self.path, dict(self.headers)))
+                if site.delay:
+                    time.sleep(site.delay)
+                try:
+                    self._respond()
+                finally:
+                    site.timings.append((self.path, started, time.monotonic()))
+
+            def _respond(self):
                 status, headers, body = site.routes.get(self.path, (404, {"Content-Type": "text/html"}, "<h1>Not found</h1>"))
                 etag = headers.get("ETag")
                 if etag and self.headers.get("If-None-Match") == etag:
@@ -86,3 +98,10 @@ def conn(settings):
     init_db(c)
     yield c
     c.close()
+
+
+@pytest.fixture
+def other_site():
+    s = FixtureSite()
+    yield s
+    s.close()

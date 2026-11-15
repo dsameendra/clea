@@ -10,7 +10,7 @@ MAX_URL_LENGTH = 2048
 
 TRACKING_PARAMS = {
     "fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "yclid", "igshid",
-    "mc_cid", "mc_eid", "_ga", "_gl", "ref_src", "ref_url", "spm", "si",
+    "mc_cid", "mc_eid", "_ga", "_gl", "ref_src", "ref_url", "spm", "si", "srsltid", "_hsenc", "_hsmi",
 }
 TRACKING_PREFIXES = ("utm_", "pk_", "hsa_")
 

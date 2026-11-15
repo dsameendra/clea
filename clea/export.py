@@ -28,9 +28,10 @@ def export_static(conn: sqlite3.Connection, out_dir: Path, *, body_chars: int = 
             "description": row["description"],
             "body": row["body"][:body_chars],
             "indexed_at": row["indexed_at"],
+            "link_density": row["link_density"],
         }
         for row in conn.execute(
-            "SELECT id, url, host, title, description, body, indexed_at FROM documents ORDER BY id"
+            "SELECT id, url, host, title, description, body, indexed_at, link_density FROM documents ORDER BY id"
         )
     ]
     words = [[r["word"], r["df"]] for r in conn.execute("SELECT word, df FROM words ORDER BY df DESC LIMIT ?", (max_words,))]

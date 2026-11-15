@@ -8,7 +8,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from . import __version__, glaneur, servir, sites
+from . import __version__, glaneur, schedule, servir, sites
 from .config import DEFAULT_DB, LEGACY_DB, Settings
 from .db import open_database
 
@@ -100,20 +100,62 @@ def cmd_crawl(args, settings):
     conn = _conn(settings)
     if args.min_delay is not None:
         settings.min_delay = args.min_delay
+    last = [None]
 
     def progress(update):
-        if update.get("current_url"):
-            print(f"  fetched={update['pages_fetched']} indexed={update['pages_indexed']} "
-                  f"skipped={update['pages_skipped']} failed={update['pages_failed']}  {update['current_url']}", flush=True)
+        key = tuple(update[k] for k in ("pages_fetched", "pages_indexed", "pages_skipped", "pages_failed"))
+        if update.get("current_url") and key != last[0]:
+            last[0] = key
+            print(f"  fetched={key[0]} indexed={key[1]} skipped={key[2]} failed={key[3]}  {update['current_url']}", flush=True)
 
+    workers = args.workers or schedule.load(conn, settings)["workers"]
     try:
-        counts = glaneur.crawl(conn, settings, site_ids=args.site or None, recrawl=args.recrawl,
-                               progress=progress, max_seconds=args.max_seconds)
+        counts = glaneur.crawl(conn, settings, site_ids=args.site or None, mode="recrawl" if args.recrawl else "new",
+                               workers=workers, progress=progress, max_seconds=args.max_seconds)
     except KeyboardInterrupt:
-        conn.commit()
         print("\nInterrupted; progress so far is saved.")
         return 130
     print(f"Done: {counts}")
+
+
+def _parse_duration(text: str) -> float:
+    """'90s', '30m', '6h', '7d' -> minutes."""
+    units = {"s": 1 / 60, "m": 1, "h": 60, "d": 1440}
+    text = text.strip().lower()
+    if text and text[-1] in units:
+        return float(text[:-1]) * units[text[-1]]
+    return float(text)
+
+
+def cmd_schedule(args, settings):
+    conn = _conn(settings)
+    patch = {}
+    if args.discover_every:
+        patch.update(discover_enabled=True, discover_minutes=_parse_duration(args.discover_every))
+    if args.refresh_every:
+        patch.update(refresh_enabled=True, refresh_hours=_parse_duration(args.refresh_every) / 60)
+    if args.no_discover:
+        patch["discover_enabled"] = False
+    if args.no_refresh:
+        patch["refresh_enabled"] = False
+    if args.max_run is not None:
+        patch["max_run_minutes"] = _parse_duration(args.max_run)
+    if args.workers is not None:
+        patch["workers"] = args.workers
+    if patch:
+        try:
+            schedule.save(conn, settings, patch)
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 2
+    cfg = schedule.load(conn, settings)
+    info = schedule.status(conn, settings)
+    print(f"parallel hosts: {cfg['workers']}   max run time: {cfg['max_run_minutes']:g} min")
+    for kind, every in (("discover", f"{cfg['discover_minutes']:g} min"), ("refresh", f"{cfg['refresh_hours']:g} h")):
+        s = info[kind]
+        state = "running" if s["running"] else (f"next {s['next_run_at']}" if s["enabled"] else "off")
+        print(f"{kind:>9}: every {every:<10} {state:<28} last {s['last_run_at'] or 'never'}")
+    print("(The scheduler runs inside `python -m clea serve`.)")
 
 
 def cmd_export(args, settings):
@@ -176,7 +218,17 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--recrawl", action="store_true", help="re-fetch pages already crawled (uses conditional requests)")
     c.add_argument("--max-seconds", type=float, help="stop gracefully after this many seconds")
     c.add_argument("--min-delay", type=float, help="seconds between requests to the same host")
+    c.add_argument("--workers", type=int, help="hosts to crawl in parallel (default: saved setting, 4)")
     c.set_defaults(func=cmd_crawl)
+
+    sc = sub.add_parser("schedule", help="show or change automatic crawling")
+    sc.add_argument("--discover-every", metavar="DURATION", help="look for new pages this often, e.g. 30m, 6h")
+    sc.add_argument("--refresh-every", metavar="DURATION", help="re-fetch every page this often, e.g. 7d")
+    sc.add_argument("--no-discover", action="store_true", help="turn off new-page checks")
+    sc.add_argument("--no-refresh", action="store_true", help="turn off full refreshes")
+    sc.add_argument("--max-run", metavar="DURATION", help="stop a scheduled run after this long, e.g. 30m")
+    sc.add_argument("--workers", type=int, help="hosts to crawl in parallel")
+    sc.set_defaults(func=cmd_schedule)
 
     e = sub.add_parser("export", help="export a static index for the browser (GitHub Pages)")
     e.add_argument("out", help="output directory, e.g. frontend/public/data")

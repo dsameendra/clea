@@ -175,3 +175,40 @@ def test_export(conn, tmp_path):
     assert ["world", 1] in data["words"]
     assert json.loads((tmp_path / "out" / "stats.json").read_text())["documents"] == 1
     assert utcnow()
+
+
+def test_crawl_settings_api(client):
+    res = client.get("/api/crawl/settings").get_json()
+    assert res["settings"]["workers"] >= 1 and res["limits"]["discover_minutes"]["min"] == 5
+    assert res["schedule"]["discover"]["enabled"] is False
+
+    saved = client.put("/api/crawl/settings", data=json.dumps({"discover_enabled": True, "discover_minutes": 30, "workers": 6}),
+                       content_type="application/json")
+    assert saved.status_code == 200
+    body = saved.get_json()
+    assert body["settings"]["workers"] == 6 and body["schedule"]["discover"]["next_run_at"]
+
+    bad = client.put("/api/crawl/settings", data=json.dumps({"discover_minutes": 1}), content_type="application/json")
+    assert bad.status_code == 400 and "between" in bad.get_json()["error"]
+
+
+def test_crawl_settings_require_admin_token(settings):
+    app, c = make_client(settings, admin_token="tok", host="0.0.0.0")
+    assert c.get("/api/crawl/settings").status_code == 401
+    assert c.put("/api/crawl/settings", data="{}", content_type="application/json").status_code == 401
+    app.extensions["clea_jobs"].stop()
+
+
+def test_crawl_request_validation(client):
+    assert post(client, "/api/crawl", {"site_ids": []}).status_code == 400
+    assert post(client, "/api/crawl", {"site_ids": [True]}).status_code == 400
+    assert post(client, "/api/crawl", {"mode": "sideways"}).status_code == 400
+
+
+def test_site_auto_crawl_toggle(client):
+    site = post(client, "/api/sites", {"url": "https://example.com/"}).get_json()["added"][0]
+    assert site["auto_crawl"] is True and site["at_limit"] is False
+    res = client.patch(f"/api/sites/{site['id']}", data=json.dumps({"auto_crawl": False}), content_type="application/json")
+    assert res.get_json()["site"]["auto_crawl"] is False
+    res = client.patch(f"/api/sites/{site['id']}", data=json.dumps({"auto_crawl": "no"}), content_type="application/json")
+    assert res.status_code == 400

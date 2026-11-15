@@ -7,11 +7,12 @@ leave stale postings behind. Ranking uses FTS5's built-in BM25.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sites (
@@ -24,7 +25,9 @@ CREATE TABLE IF NOT EXISTS sites (
     added_at        TEXT NOT NULL,
     last_crawled_at TEXT,
     status          TEXT NOT NULL DEFAULT 'pending',   -- pending | crawling | ok | error
-    last_error      TEXT
+    last_error      TEXT,
+    auto_crawl      INTEGER NOT NULL DEFAULT 1,        -- included in scheduled crawls
+    sitemap_checked_at TEXT
 );
 
 -- The crawl frontier and per-URL fetch state.
@@ -58,7 +61,8 @@ CREATE TABLE IF NOT EXISTS documents (
     lang         TEXT,
     word_count   INTEGER NOT NULL DEFAULT 0,
     content_hash TEXT NOT NULL,
-    indexed_at   TEXT NOT NULL
+    indexed_at   TEXT NOT NULL,
+    link_density REAL NOT NULL DEFAULT 0              -- share of the text that is link text (index/nav pages)
 );
 CREATE INDEX IF NOT EXISTS documents_host ON documents(host);
 CREATE INDEX IF NOT EXISTS documents_site ON documents(site_id);
@@ -91,6 +95,12 @@ CREATE TABLE IF NOT EXISTS words (
     df   INTEGER NOT NULL
 ) WITHOUT ROWID;
 
+-- Key/value settings saved from the UI (JSON values), e.g. the crawl schedule.
+CREATE TABLE IF NOT EXISTS config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS jobs (
     id             INTEGER PRIMARY KEY,
     kind           TEXT NOT NULL,
@@ -114,12 +124,42 @@ def utcnow() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def to_iso(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso(value: str | None) -> datetime | None:
+    """Parse our timestamps and sitemap <lastmod> values (date or datetime, any offset)."""
+    if not value:
+        return None
+    try:
+        moment = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def get_config(conn: sqlite3.Connection, key: str, default=None):
+    row = conn.execute("SELECT value FROM config WHERE key = ?", (key,)).fetchone()
+    return json.loads(row[0]) if row else default
+
+
+def set_config(conn: sqlite3.Connection, key: str, value) -> None:
+    conn.execute(
+        "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (key, json.dumps(value)),
+    )
+
+
 def connect(db_path: Path | str) -> sqlite3.Connection:
     """Open a connection configured for concurrent readers + one writer thread."""
     path = Path(db_path)
     if str(path) != ":memory:":
         path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=30)
+    # IMMEDIATE: write transactions take the write lock up front (waiting via the busy timeout).
+    # With deferred transactions, concurrent crawler threads can fail with "database is locked"
+    # when a transaction's read snapshot goes stale before its first write.
+    conn = sqlite3.connect(str(path), timeout=30, isolation_level="IMMEDIATE")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 30000")
@@ -127,6 +167,25 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")
     return conn
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate_v2_to_v3(conn: sqlite3.Connection) -> None:
+    """Add scheduling and ranking columns.
+
+    ``link_density`` can only be computed from a page's HTML, so validators are
+    cleared: the next recrawl downloads every page in full instead of getting 304s.
+    """
+    if "auto_crawl" not in _columns(conn, "sites"):
+        conn.execute("ALTER TABLE sites ADD COLUMN auto_crawl INTEGER NOT NULL DEFAULT 1")
+    if "sitemap_checked_at" not in _columns(conn, "sites"):
+        conn.execute("ALTER TABLE sites ADD COLUMN sitemap_checked_at TEXT")
+    if "link_density" not in _columns(conn, "documents"):
+        conn.execute("ALTER TABLE documents ADD COLUMN link_density REAL NOT NULL DEFAULT 0")
+        conn.execute("UPDATE urls SET etag = NULL, last_modified = NULL")
 
 
 def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
@@ -139,8 +198,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     conn.executescript(SCHEMA)
     if version < SCHEMA_VERSION:
-        if _table_exists(conn, "sitemap_urls"):
+        if version == 0 and _table_exists(conn, "sitemap_urls"):
             _import_legacy_sites(conn)
+        if 0 < version < 3:
+            _migrate_v2_to_v3(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     conn.commit()
 

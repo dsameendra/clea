@@ -1,9 +1,10 @@
-"""Background crawl jobs.
+"""Background crawl jobs and the crawl scheduler.
 
-Crawls run on a single worker thread so HTTP requests return immediately; the
-UI polls ``/api/jobs/<id>`` for progress. Job state lives in SQLite, so the
-history survives restarts (jobs cut short by a restart are marked
-``interrupted``).
+One job runs at a time (the job itself crawls several hosts in parallel), so
+HTTP requests return immediately; the UI polls ``/api/jobs`` for progress. Job
+state lives in SQLite, so the history survives restarts (jobs cut short by a
+restart are marked ``interrupted``). A scheduler thread checks
+``schedule.due()`` every ``tick_seconds`` and submits automatic crawls.
 """
 
 from __future__ import annotations
@@ -13,9 +14,9 @@ import logging
 import queue
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 
-from . import glaneur
+from . import glaneur, schedule
 from .config import Settings
 from .db import connect, utcnow
 
@@ -36,8 +37,9 @@ def job_dict(row) -> dict:
 
 
 class JobManager:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, tick_seconds: float = 30.0):
         self.settings = settings
+        self.tick_seconds = tick_seconds
         self._queue: queue.Queue[int] = queue.Queue()
         self._cancel: dict[int, threading.Event] = {}
         self._lock = threading.Lock()
@@ -62,8 +64,7 @@ class JobManager:
         conn.commit()
         conn.close()
         threading.Thread(target=self._worker, name="clea-crawl-worker", daemon=True).start()
-        if self.settings.recrawl_hours > 0:
-            threading.Thread(target=self._scheduler, name="clea-scheduler", daemon=True).start()
+        threading.Thread(target=self._scheduler, name="clea-scheduler", daemon=True).start()
 
     def stop(self) -> None:
         self._stop.set()
@@ -72,14 +73,29 @@ class JobManager:
 
     # -- public API ----------------------------------------------------------------
 
-    def submit_crawl(self, *, site_ids: list[int] | None = None, recrawl: bool = False, reason: str = "manual") -> dict:
+    def submit_crawl(
+        self,
+        *,
+        site_ids: list[int] | None = None,
+        mode: str = "new",
+        recrawl: bool | None = None,
+        reason: str = "manual",
+        max_seconds: float | None = None,
+        workers: int | None = None,
+    ) -> dict:
+        if recrawl is not None:
+            mode = "recrawl" if recrawl else "new"
+        if mode not in glaneur.MODES:
+            raise ValueError(f"Unknown crawl mode {mode!r}")
         conn = self._conn()
         try:
+            if workers is None:
+                workers = schedule.load(conn, self.settings)["workers"]
             with self._lock:
                 active = conn.execute("SELECT id FROM jobs WHERE status IN ('queued', 'running') LIMIT 1").fetchone()
                 if active:
                     raise JobConflict(f"Job #{active['id']} is still running; wait for it or cancel it first.")
-                params = {"site_ids": site_ids, "recrawl": recrawl, "reason": reason}
+                params = {"site_ids": site_ids, "mode": mode, "reason": reason, "max_seconds": max_seconds, "workers": workers}
                 cur = conn.execute(
                     "INSERT INTO jobs (kind, params, status, created_at, message) VALUES ('crawl', ?, 'queued', ?, 'Waiting to start')",
                     (json.dumps(params), utcnow()),
@@ -168,12 +184,18 @@ class JobManager:
 
             status, message, error = "done", "Finished", None
             counts = {}
+            mode = params.get("mode") or ("recrawl" if params.get("recrawl") else "new")
             try:
                 counts = glaneur.crawl(
-                    conn, self.settings, site_ids=params.get("site_ids"), recrawl=bool(params.get("recrawl")),
+                    conn, self.settings, site_ids=params.get("site_ids"), mode=mode,
+                    workers=params.get("workers"), max_seconds=params.get("max_seconds"),
                     cancel=cancel, progress=progress,
                 )
                 message = f"Indexed {counts['pages_indexed']} pages ({counts['pages_fetched']} fetched)"
+                if counts.get("time_limited"):
+                    message += " · stopped at the time limit"
+                if counts.get("errors"):
+                    message += f" · {counts['errors']} worker(s) failed, see the server log"
             except glaneur.Cancelled:
                 status, message = "cancelled", "Cancelled"
             except Exception as exc:
@@ -195,20 +217,40 @@ class JobManager:
 
     # -- scheduler -----------------------------------------------------------------
 
+    def tick(self, now: datetime | None = None) -> dict | None:
+        """Submit a scheduled crawl if one is due. Returns the job, if any."""
+        conn = self._conn()
+        try:
+            kind = schedule.due(conn, self.settings, now=now)
+            if kind is None:
+                return None
+            cfg = schedule.load(conn, self.settings)
+            site_ids = [r["id"] for r in conn.execute("SELECT id FROM sites WHERE auto_crawl = 1 ORDER BY id")]
+        finally:
+            conn.close()
+        if not site_ids:
+            return None
+        try:
+            job = self.submit_crawl(
+                site_ids=site_ids,
+                mode="recrawl" if kind == "refresh" else "new",
+                reason=f"scheduled-{kind}",
+                max_seconds=cfg["max_run_minutes"] * 60,
+                workers=cfg["workers"],
+            )
+        except JobConflict:
+            return None  # a manual crawl is running; try again next tick
+        conn = self._conn()
+        try:
+            schedule.record_run(conn, kind, job["id"])
+        finally:
+            conn.close()
+        log.info("started scheduled %s crawl (job %s) for %d site(s)", kind, job["id"], len(site_ids))
+        return job
+
     def _scheduler(self) -> None:
-        interval = timedelta(hours=self.settings.recrawl_hours)
-        while not self._stop.wait(300):
-            conn = self._conn()
+        while not self._stop.wait(self.tick_seconds):
             try:
-                cutoff = (datetime.now(UTC) - interval).strftime("%Y-%m-%dT%H:%M:%SZ")
-                due = [r["id"] for r in conn.execute(
-                    "SELECT id FROM sites WHERE last_crawled_at IS NULL OR last_crawled_at < ?", (cutoff,)
-                )]
-            finally:
-                conn.close()
-            if due:
-                try:
-                    self.submit_crawl(site_ids=due, recrawl=True, reason="scheduled")
-                    log.info("scheduled recrawl of %d site(s)", len(due))
-                except JobConflict:
-                    pass
+                self.tick()
+            except Exception:  # keep scheduling even if one tick fails
+                log.exception("scheduler tick failed")

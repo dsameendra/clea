@@ -12,7 +12,7 @@ from xml.sax.saxutils import escape
 from flask import Flask, Response, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-from . import __version__, servir, sites
+from . import __version__, schedule, servir, sites
 from .config import DEFAULT_DB, LEGACY_DB, LOOPBACK_HOSTS, Settings
 from .db import connect, open_database
 from .jobs import JobConflict, JobManager
@@ -76,7 +76,7 @@ def create_app(settings: Settings | None = None, *, start_jobs: bool = True) -> 
             origin = request.headers.get("Origin")
             if origin and not _origin_ok(origin):
                 return jsonify(error="Cross-origin request blocked"), 403
-            if request.method != "DELETE" and request.content_length and not request.is_json:
+            if request.method not in ("DELETE",) and request.content_length and not request.is_json:
                 return jsonify(error="Content-Type must be application/json"), 415
 
     @app.after_request
@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None, *, start_jobs: bool = True) -> 
         if origin and origin in settings.cors_origins:
             resp.headers["Access-Control-Allow-Origin"] = origin
             resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
             resp.headers["Vary"] = "Origin"
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("Referrer-Policy", "no-referrer")
@@ -176,7 +176,9 @@ def create_app(settings: Settings | None = None, *, start_jobs: bool = True) -> 
     def update_site(site_id: int):
         data = body()
         try:
-            site = sites.update_site(db(), site_id, max_pages=data.get("max_pages"), max_depth=data.get("max_depth"))
+            site = sites.update_site(
+                db(), site_id, max_pages=data.get("max_pages"), max_depth=data.get("max_depth"), auto_crawl=data.get("auto_crawl")
+            )
         except ValueError as exc:
             raise ApiError(str(exc)) from None
         if site is None:
@@ -208,13 +210,37 @@ def create_app(settings: Settings | None = None, *, start_jobs: bool = True) -> 
     def start_crawl():
         data = body()
         site_ids = data.get("site_ids")
-        if site_ids is not None and (not isinstance(site_ids, list) or not all(isinstance(i, int) for i in site_ids)):
-            raise ApiError("'site_ids' must be a list of site ids")
+        if site_ids is not None:
+            if not isinstance(site_ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in site_ids):
+                raise ApiError("'site_ids' must be a list of site ids")
+            if not site_ids:
+                raise ApiError("No sites selected")
+        mode = data.get("mode") or ("recrawl" if data.get("recrawl") else "new")
         try:
-            job = jobs.submit_crawl(site_ids=site_ids or None, recrawl=bool(data.get("recrawl")))
+            job = jobs.submit_crawl(site_ids=site_ids, mode=mode)
         except JobConflict as exc:
             raise ApiError(str(exc), 409) from None
+        except ValueError as exc:
+            raise ApiError(str(exc)) from None
         return jsonify(job=job), 202
+
+    @app.get("/api/crawl/settings")
+    @admin
+    def get_crawl_settings():
+        return jsonify(
+            settings=schedule.load(db(), settings),
+            schedule=schedule.status(db(), settings),
+            limits={k: {"min": lo, "max": hi} for k, (lo, hi) in schedule.LIMITS.items()},
+        )
+
+    @app.put("/api/crawl/settings")
+    @admin
+    def put_crawl_settings():
+        try:
+            saved = schedule.save(db(), settings, body())
+        except ValueError as exc:
+            raise ApiError(str(exc)) from None
+        return jsonify(settings=saved, schedule=schedule.status(db(), settings))
 
     @app.get("/api/jobs")
     @admin

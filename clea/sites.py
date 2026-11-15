@@ -76,15 +76,18 @@ def enqueue_seed(conn: sqlite3.Connection, site_id: int, seed: str) -> None:
     )
 
 
-def update_site(conn: sqlite3.Connection, site_id: int, *, max_pages=None, max_depth=None) -> dict | None:
+def update_site(conn: sqlite3.Connection, site_id: int, *, max_pages=None, max_depth=None, auto_crawl=None) -> dict | None:
     site = get_site(conn, site_id)
     if not site:
         return None
+    if auto_crawl is not None and not isinstance(auto_crawl, bool):
+        raise ValueError("auto_crawl must be true or false")
     conn.execute(
-        "UPDATE sites SET max_pages = ?, max_depth = ? WHERE id = ?",
+        "UPDATE sites SET max_pages = ?, max_depth = ?, auto_crawl = ? WHERE id = ?",
         (
             _clamp(max_pages, site["max_pages"], MAX_PAGES_LIMIT),
             _clamp(max_depth, site["max_depth"], MAX_DEPTH_LIMIT),
+            int(site["auto_crawl"] if auto_crawl is None else auto_crawl),
             site_id,
         ),
     )
@@ -104,17 +107,29 @@ def remove_site(conn: sqlite3.Connection, site_id: int) -> bool:
 
 _SITE_COLUMNS = """
     s.id, s.seed_url, s.host, s.path_prefix, s.max_pages, s.max_depth, s.added_at,
-    s.last_crawled_at, s.status, s.last_error,
+    s.last_crawled_at, s.status, s.last_error, s.auto_crawl,
     (SELECT COUNT(*) FROM documents d WHERE d.site_id = s.id) AS documents,
     (SELECT COUNT(*) FROM urls u WHERE u.site_id = s.id AND u.status = 'queued') AS queued,
-    (SELECT COUNT(*) FROM urls u WHERE u.site_id = s.id AND u.status = 'failed') AS failed
+    (SELECT COUNT(*) FROM urls u WHERE u.site_id = s.id AND u.status = 'failed') AS failed,
+    (SELECT COUNT(*) FROM urls u WHERE u.site_id = s.id AND u.status IN ('queued', 'done')) AS known
 """
+
+
+def _site_dict(row: sqlite3.Row) -> dict:
+    from .glaneur import FRONTIER_FACTOR
+
+    site = dict(row)
+    site["auto_crawl"] = bool(site["auto_crawl"])
+    # Page limit reached: new pages stay queued (or stop being discovered) until max_pages is raised.
+    known = site.pop("known")
+    site["at_limit"] = site["documents"] >= site["max_pages"] or known >= site["max_pages"] * FRONTIER_FACTOR
+    return site
 
 
 def get_site(conn: sqlite3.Connection, site_id: int) -> dict | None:
     row = conn.execute(f"SELECT {_SITE_COLUMNS} FROM sites s WHERE s.id = ?", (site_id,)).fetchone()
-    return dict(row) if row else None
+    return _site_dict(row) if row else None
 
 
 def list_sites(conn: sqlite3.Connection) -> list[dict]:
-    return [dict(row) for row in conn.execute(f"SELECT {_SITE_COLUMNS} FROM sites s ORDER BY s.added_at, s.id")]
+    return [_site_dict(row) for row in conn.execute(f"SELECT {_SITE_COLUMNS} FROM sites s ORDER BY s.added_at, s.id")]

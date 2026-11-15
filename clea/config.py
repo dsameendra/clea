@@ -42,7 +42,10 @@ class Settings:
     request_timeout: float = field(default_factory=lambda: float(os.environ.get("CLEA_REQUEST_TIMEOUT", "15")))
     min_delay: float = field(default_factory=lambda: float(os.environ.get("CLEA_MIN_DELAY", "1.0")))
     max_page_bytes: int = field(default_factory=lambda: int(os.environ.get("CLEA_MAX_PAGE_BYTES", str(5 * 1024 * 1024))))
-    # Automatically recrawl every site after this many hours (0 disables).
+    # Hosts crawled in parallel (requests to a single host are always sequential).
+    crawl_workers: int = field(default_factory=lambda: int(os.environ.get("CLEA_CRAWL_WORKERS", "4")))
+    # Defaults for the crawl schedule until it is changed in the UI (0 = off).
+    discover_minutes: float = field(default_factory=lambda: float(os.environ.get("CLEA_DISCOVER_MINUTES", "0")))
     recrawl_hours: float = field(default_factory=lambda: float(os.environ.get("CLEA_RECRAWL_HOURS", "0")))
 
     @property

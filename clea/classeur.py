@@ -51,6 +51,9 @@ class Page:
     noindex: bool = False
     nofollow: bool = False
     links: list[Link] = field(default_factory=list)
+    # Share of the readable text that sits inside links: ~0.1 for articles, ~0.9 for
+    # generated index pages and link lists, which are demoted in ranking.
+    link_density: float = 0.0
 
     @property
     def word_count(self) -> int:
@@ -126,6 +129,9 @@ def extract(html: str) -> Page:
         tag.insert_after("\n")
     lines = (_squash(line) for line in container.get_text().splitlines())
     page.body = " ".join(line for line in lines if line)[:MAX_BODY]
+    if page.body:
+        link_chars = sum(len(_squash(a.get_text())) for a in container.find_all("a"))
+        page.link_density = round(min(1.0, link_chars / len(page.body)), 3)
     if not page.title:
         page.title = page.body[:80]
     return page
@@ -181,17 +187,18 @@ def index_page(conn: sqlite3.Connection, *, url_id: int, site_id: int, url: str,
     conn.execute(
         """
         INSERT INTO documents (url_id, site_id, url, host, title, description, body, url_terms,
-                               lang, word_count, content_hash, indexed_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               lang, word_count, content_hash, indexed_at, link_density)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(url_id) DO UPDATE SET
             site_id = excluded.site_id, url = excluded.url, host = excluded.host,
             title = excluded.title, description = excluded.description, body = excluded.body,
             url_terms = excluded.url_terms, lang = excluded.lang, word_count = excluded.word_count,
-            content_hash = excluded.content_hash, indexed_at = excluded.indexed_at
+            content_hash = excluded.content_hash, indexed_at = excluded.indexed_at,
+            link_density = excluded.link_density
         """,
         (
             url_id, site_id, url, host_of(url), page.title, page.description, page.body, url_terms(url),
-            page.lang, page.word_count, digest, utcnow(),
+            page.lang, page.word_count, digest, utcnow(), page.link_density,
         ),
     )
     _adjust_words(conn, old_words - new_words, new_words - old_words)
