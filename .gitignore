@@ -20,3 +20,6 @@ frontend/public/data/
 .idea/
 .vscode/
 *.swp
+
+# Local secrets (docker compose)
+.env

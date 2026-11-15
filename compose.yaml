@@ -1,0 +1,19 @@
+# docker compose up -d   →  http://localhost:6942
+# The container listens on all interfaces, so an admin token is required:
+#   echo "CLEA_ADMIN_TOKEN=$(openssl rand -hex 24)" > .env
+services:
+  clea:
+    build: .
+    image: clea:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6942:6942" # drop "127.0.0.1:" to expose on your network
+    environment:
+      CLEA_ADMIN_TOKEN: ${CLEA_ADMIN_TOKEN:?Set CLEA_ADMIN_TOKEN in .env (see compose.yaml)}
+      CLEA_RECRAWL_HOURS: ${CLEA_RECRAWL_HOURS:-168} # recrawl weekly
+      CLEA_CRAWLER_CONTACT: ${CLEA_CRAWLER_CONTACT:-}
+    volumes:
+      - clea-data:/data
+
+volumes:
+  clea-data:

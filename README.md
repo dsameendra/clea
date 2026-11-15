@@ -1,138 +1,195 @@
 # Clea: A Search Engine
 
-![Clea Search Engine](https://img.shields.io/badge/Clea-Search%20Engine-orange)
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
-![React](https://img.shields.io/badge/React-19.1.0-61dafb)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
+![React](https://img.shields.io/badge/React-19-61dafb)
 ![License](https://img.shields.io/badge/License-MIT-green)
+[![CI](https://github.com/dsameendra/clea/actions/workflows/ci.yml/badge.svg)](https://github.com/dsameendra/clea/actions/workflows/ci.yml)
 
-> Cléa From clé (key), unlocking answers.
+> Cléa — from *clé* (key), unlocking answers.
 
-Clea is a modern, self-hosted search engine with web crawling capabilities, designed to provide personalized search functionality across websites you care about. With a sleek, modern UI and powerful backend, Clea makes discovering and organizing web content easy.
+Clea is a small, self-hosted search engine. Give it the sites you care about; it crawls them politely, builds a
+full-text index and gives you a fast, clean search page for them. It also runs as a fully static demo on
+GitHub Pages, with search happening in the browser.
 
 ![Clea Screenshot](clea_screenshot.png)
 
 ## Features
 
-- **Powerful Web Crawling**: Automatically discovers and indexes content from specified websites
-- **Custom Site Management**: Add, remove, and manage sites to be crawled and indexed
-- **Intelligent Search**: Finds relevant results based on content matching and relevance scoring
-- **Modern UI**: Clean, responsive interface built with React and Mantine UI components
-- **Full-Text Search**: Indexes and searches use the full-text searching
-- **Robots.txt Compliance**: Respects website crawling directives
-- **Customizable Indexing**: Control how many pages are crawled per site
+**Search**
+- Full-text search with BM25 ranking (SQLite FTS5), stemming, and title/URL boosting
+- Query-aware snippets with highlighted matches
+- Search syntax: `"exact phrase"`, `-exclude`, `prefix*`, `site:example.com`, `intitle:word`
+- Falls back to "any word" when nothing matches every word, and suggests spelling corrections ("Did you mean …")
+- Autocomplete as you type
+- Instant answers in the browser: a calculator (`15% of 240`, `sqrt(2)*10`, `5!`) and unit conversion
+  (`10 km in miles`, `72 f to c`, `1.5 gib in mb`)
+- Shareable result URLs (`?q=…&p=2`), pagination, `/` to focus search, light/dark theme
+- OpenSearch, so you can add Clea as a search engine in your browser
 
-## Getting Started
+**Crawling**
+- Crawls each site breadth-first within its host and path (e.g. only `/docs/`), with page and depth limits
+- Respects robots.txt (including `Crawl-delay` and `Sitemap`), `<meta name="robots">` and `rel="nofollow"`,
+  waits between requests to the same host, and sends an identifying User-Agent
+- Reads sitemaps, follows canonical URLs and same-site redirects, normalises URLs and skips duplicates and non-HTML files
+- Recrawls use `ETag` / `Last-Modified`, so unchanged pages cost almost nothing; pages that disappear leave the index
+- Crawls run in the background with live progress and can be cancelled. Optional scheduled recrawls
 
-### Prerequisites
+**Running it**
+- One process: the Python server serves the API and the built web app
+- An admin token protects site management whenever the server is reachable from the network
+- Docker image and Compose file
+- Static GitHub Pages build updated by a scheduled GitHub Action
 
-- Python 3.9+
-- Node.js 18+
-- NLTK data files
+## Quick start
 
-### Installation
+Requirements: Python 3.11+ and Node.js 20+.
 
-1. Clone the repository:
+```bash
+git clone https://github.com/dsameendra/clea.git
+cd clea
 
-   ```bash
-   git clone https://github.com/dsameendra/clea.git
-   cd clea
-   ```
+# Backend
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 
-2. Install Python dependencies:
+# Frontend
+cd frontend && npm install && npm run build && cd ..
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+# Run
+python -m clea serve
+```
 
-3. Set up NLTK data (for natural language processing):
+Open <http://localhost:6942>, click the **sitemap** icon, add a site (for example
+`https://docs.python.org/3/tutorial/`) and press **Crawl new pages**. Results become searchable as pages are indexed.
 
-   ```python
-   import nltk
-   nltk.download('stopwords')
-   nltk.download('punkt')
-   ```
+To load the demo's site list instead: `python -m clea sites import sites.toml`.
 
-4. Initialize the database:
+### Developing the frontend
 
-   ```bash
-   python init_db.py
-   ```
+Run the backend (`python -m clea serve`) and, in another terminal, the Vite dev server (it proxies `/api` to the
+backend):
 
-5. Install frontend dependencies:
-   ```bash
-   cd frontend
-   npm install
-   ```
+```bash
+cd frontend
+npm run dev        # http://localhost:5173
+```
 
-### Running Clea
+## Command line
 
-1. Start the backend server:
+```bash
+python -m clea serve [--host 127.0.0.1] [--port 6942]
+python -m clea sites add https://example.com/docs/ --max-pages 200 --max-depth 3
+python -m clea sites list
+python -m clea sites remove 3
+python -m clea sites import sites.toml [--prune]
+python -m clea crawl [--site 1] [--recrawl] [--max-seconds 600]
+python -m clea search "flask blueprints"
+python -m clea stats
+python -m clea export frontend/public/data     # static index for the browser
+```
 
-   ```bash
-   # In the main project directory
-   python clea_server.py
-   ```
+## Configuration
 
-2. Start the frontend development server:
+All settings are environment variables:
 
-   ```bash
-   # In the frontend directory
-   npm run dev
-   ```
+| Variable | Default | Meaning |
+|---|---|---|
+| `CLEA_DB` | `data/clea.db` | SQLite database path |
+| `CLEA_HOST` / `CLEA_PORT` | `127.0.0.1` / `6942` | Where the server listens |
+| `CLEA_ADMIN_TOKEN` | *(empty)* | Protects site management and crawling. **Required** when `CLEA_HOST` is not a loopback address |
+| `CLEA_ALLOWED_HOSTS` | | Extra `Host` names to accept when no token is set (DNS-rebinding protection) |
+| `CLEA_CORS_ORIGINS` | | Browser origins allowed to call the API from another site |
+| `CLEA_CRAWLER_CONTACT` | | URL or email added to the crawler's User-Agent so site owners can reach you |
+| `CLEA_MIN_DELAY` | `1.0` | Minimum seconds between requests to the same host |
+| `CLEA_RECRAWL_HOURS` | `0` | Recrawl every site this often (0 = off) |
+| `CLEA_REQUEST_TIMEOUT` | `15` | Per-request timeout in seconds |
+| `CLEA_MAX_PAGE_BYTES` | `5242880` | Pages larger than this are skipped |
+| `CLEA_STATIC_DIR` | `frontend/dist` | Built web app to serve |
 
-3. Open your browser and navigate to:
-   ```
-   http://localhost:5173
-   ```
+## Docker
 
-## Usage Guide
+```bash
+echo "CLEA_ADMIN_TOKEN=$(openssl rand -hex 24)" > .env
+docker compose up -d
+```
 
-### Adding Sites to Crawl
+Open <http://localhost:6942> and enter the token under **Settings** (or when the admin panel asks). The index is
+kept in the `clea-data` volume, and sites are recrawled weekly by default (`CLEA_RECRAWL_HOURS`).
 
-1. Open the Sitemap Manager by clicking the grid icon in the top right
-2. Enter a URL in the "Add URL" field
-3. Click "Add URL" to add a single site or "Add Multiple URLs" for batch additions
-4. Set the maximum number of pages to index per site
+## GitHub Pages demo
 
-### Crawling and Indexing
+GitHub Pages only serves static files, so the demo works differently from a self-hosted Clea:
 
-1. Use "Force Crawl" to re-crawl all sites, even previously visited ones
-2. Use "Crawl New Sites" to only crawl sites that haven't been visited yet
-3. The system will index content as per your command (this process is very time-consuming)
+1. `.github/workflows/pages.yml` runs the Python crawler on the sites in [`sites.toml`](sites.toml) (on every push to
+   `main`, weekly, or on demand).
+2. `python -m clea export` writes the index as JSON next to the built frontend.
+3. The frontend is built with `VITE_SEARCH_MODE=static`. It loads the index in a Web Worker and searches it in the
+   browser with [MiniSearch](https://github.com/lucaong/minisearch): same query syntax, typo tolerance, snippets and
+   suggestions. The admin panel is hidden.
 
-### Searching
+To enable it, go to **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**. Then push to
+`main` or run the workflow from the **Actions** tab. Keep `sites.toml` small, because every visitor downloads the
+index (a few hundred pages is a few MB).
 
-1. Simply enter your search terms in the search box
-2. Results will appear below, ranked by relevance
-3. Click on any result to visit the original page
+To try the static build locally:
 
-## Project Structure
+```bash
+python -m clea export frontend/public/data
+cd frontend && npm run dev:static
+```
 
-- `clea_server.py`: Main backend API server
-- `glaneur.py`: Web crawler and site management (French for "collector")
-- `classeur.py`: Indexing and content processing (French for "organizer")
-- `servir.py`: Search service (French for "serve")
-- `init_db.py`: Database initialization script
-- `frontend/`: React frontend application
+## How it works
+
+```
+clea/
+  glaneur.py   crawler: frontier, robots.txt, politeness, redirects, sitemaps   (French: "gatherer")
+  classeur.py  HTML → title/description/main text/links; writes documents       ("organiser")
+  servir.py    query parsing, FTS5/BM25 search, snippets, suggestions, stats    ("to serve")
+  sites.py     site management          jobs.py    background crawl jobs
+  server.py    Flask API + web app      cli.py     command line
+  db.py        schema & migrations      export.py  static index for GitHub Pages
+frontend/src/
+  lib/staticEngine.js   browser search engine (static mode)
+  lib/instant/          calculator and unit converter (no eval)
+  components/           search UI and admin panel
+```
+
+Documents are stored in SQLite and mirrored into an FTS5 index by triggers, so updates and deletions never leave
+stale entries behind. The database from Clea 1.x is migrated automatically: its sites are kept and their pages are
+crawled again.
+
+### API
+
+| Method & path | |
+|---|---|
+| `GET /api/search?q=&page=&per_page=` | Search. Returns `results[{url, title, snippet, host}]`, where title and snippet are `[{text, match}]` segments, plus `total`, `suggestion` and `relaxed` |
+| `GET /api/suggest?q=` | Autocomplete |
+| `GET /api/stats` | Index statistics |
+| `GET/POST /api/sites`, `PATCH/DELETE /api/sites/<id>` | Manage sites (admin) |
+| `GET /api/sites/<id>/urls?status=failed` | Crawl problems for a site (admin) |
+| `POST /api/crawl` `{site_ids?, recrawl?}` | Start a crawl job (admin) |
+| `GET /api/jobs`, `GET /api/jobs/<id>`, `POST /api/jobs/<id>/cancel` | Job progress (admin) |
+
+## Development
+
+```bash
+pip install -r requirements-dev.txt
+pytest                      # backend tests (spins up a local test website)
+ruff check clea tests
+cd frontend && npm test && npm run lint
+```
 
 ## Contributing
 
-Contributions to Clea are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Contributions are welcome! Fork the repository, create a branch, and open a pull request. Please run the tests first.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT, see [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-- [Flask](https://flask.palletsprojects.com/)
-- [React](https://reactjs.org/)
-- [Mantine UI](https://mantine.dev/)
-- [NLTK](https://www.nltk.org/)
-- [BeautifulSoup](https://www.crummy.com/software/BeautifulSoup/)
+[Flask](https://flask.palletsprojects.com/) · [SQLite FTS5](https://www.sqlite.org/fts5.html) ·
+[Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) · [Protego](https://github.com/scrapy/protego) ·
+[React](https://react.dev/) · [Mantine](https://mantine.dev/) · [MiniSearch](https://github.com/lucaong/minisearch)
