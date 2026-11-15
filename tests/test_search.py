@@ -200,3 +200,12 @@ def test_v1_database_file_is_imported_into_a_new_database(tmp_path):
     # Not re-imported once the new database exists.
     conn = open_database(tmp_path / "data" / "clea.db", tmp_path / "clea_db.db")
     assert len(sites.list_sites(conn)) == 1
+
+
+def test_contents_pages_are_not_demoted(conn):
+    # Tables of contents are link-heavy but are the right answer for navigational queries.
+    _, _ = add_doc(conn, "https://docs.example/tutorial/", "The Example Tutorial", "Contents of the example tutorial")
+    add_doc(conn, "https://docs.example/tutorial/next", "What next", "After the example tutorial, read more.")
+    conn.execute("UPDATE documents SET link_density = 0.75 WHERE url = 'https://docs.example/tutorial/'")
+    conn.commit()
+    assert urls(servir.search(conn, "example tutorial"))[0] == "https://docs.example/tutorial/"

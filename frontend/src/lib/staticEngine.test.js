@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseQuery } from "./query.js";
-import { createEngine } from "./staticEngine.js";
+import { createEngine, linkPenalty } from "./staticEngine.js";
 import { makeSnippet, stem } from "./text.js";
 
 const documents = [
@@ -123,5 +123,13 @@ describe("link-heavy pages", () => {
   it("rank below otherwise identical pages", () => {
     expect(make(0.95, 0.05).search("widget function").results[0].url).toBe("https://d.org/b");
     expect(make(0.05, 0.95).search("widget function").results[0].url).toBe("https://d.org/a");
+  });
+});
+
+describe("link penalty", () => {
+  it("leaves tables of contents alone and demotes generated indexes", () => {
+    expect(linkPenalty(0.64)).toBe(1); // e.g. the Python tutorial contents page
+    expect(linkPenalty(0.78)).toBe(1); // e.g. the Flask docs home page
+    expect(linkPenalty(0.96)).toBeLessThan(0.6); // e.g. a Sphinx genindex
   });
 });

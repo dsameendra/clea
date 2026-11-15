@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 import tomllib
 from pathlib import Path
@@ -32,6 +33,8 @@ def cmd_serve(args, settings):
     from .server import create_app
 
     app = create_app(settings)
+    # Exit cleanly on `kill` / ./stop.sh; an interrupted crawl is marked as such on the next start.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     url = f"http://{'localhost' if settings.is_loopback else settings.host}:{settings.port}"
     print(f"Clea {__version__} serving on {url}  (database: {settings.db_path})")
     if args.dev:

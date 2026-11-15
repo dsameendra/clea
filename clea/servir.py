@@ -28,10 +28,10 @@ STOP_WORDS = frozenset(
     "a an and are as at be but by for from how if in into is it its no not of on or so such that the their then "
     "there these they this to was what when where which who why will with you your".split()
 )
-# Pages that are mostly links (generated indexes, sitemaps, link lists) match nearly every
+# Pages that are almost entirely links (generated indexes, sitemaps) match nearly every
 # term; above this share of link text their score is scaled down, by up to MAX_LINK_PENALTY.
-LINK_DENSITY_THRESHOLD = 0.5
-LINK_PENALTY_SLOPE = 1.5
+LINK_DENSITY_THRESHOLD = 0.8
+LINK_PENALTY_SLOPE = 3.0
 MAX_LINK_PENALTY = 0.6
 # BM25 column weights: title, description, body, url_terms.
 BM25_WEIGHTS = (20.0, 4.0, 1.0, 6.0)

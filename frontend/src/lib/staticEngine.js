@@ -12,8 +12,8 @@ const STOP_WORDS = new Set(
 );
 const MAX_PER_PAGE = 50;
 // Same demotion as the server (clea/servir.py): pages that are mostly links rank lower.
-const LINK_DENSITY_THRESHOLD = 0.5;
-const LINK_PENALTY_SLOPE = 1.5;
+const LINK_DENSITY_THRESHOLD = 0.8;
+const LINK_PENALTY_SLOPE = 3.0;
 const MAX_LINK_PENALTY = 0.6;
 
 export function linkPenalty(density = 0) {
