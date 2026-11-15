@@ -32,7 +32,12 @@ GitHub Pages, with search happening in the browser.
   waits between requests to the same host, and sends an identifying User-Agent
 - Reads sitemaps, follows canonical URLs and same-site redirects, normalises URLs and skips duplicates and non-HTML files
 - Recrawls use `ETag` / `Last-Modified`, so unchanged pages cost almost nothing; pages that disappear leave the index
-- Crawls run in the background with live progress and can be cancelled. Optional scheduled recrawls
+- **Parallel:** different sites are crawled at the same time (4 by default), while each site still gets one request at
+  a time
+- **Automatic crawling:** look for new pages every N minutes, and refresh every page every N hours or days, set from
+  the admin panel. Sites can be left out individually
+- Crawls run in the background with live progress, an optional time limit, and can be cancelled
+- Pages that are mostly links (generated indexes, sitemaps) are ranked below the pages they point to
 
 **Running it**
 - One process: the Python server serves the API and the built web app
@@ -83,7 +88,9 @@ python -m clea sites add https://example.com/docs/ --max-pages 200 --max-depth 3
 python -m clea sites list
 python -m clea sites remove 3
 python -m clea sites import sites.toml [--prune]
-python -m clea crawl [--site 1] [--recrawl] [--max-seconds 600]
+python -m clea crawl [--site 1] [--recrawl] [--workers 4] [--max-seconds 600]
+python -m clea schedule --discover-every 30m --refresh-every 7d [--max-run 30m] [--workers 4]
+python -m clea schedule --no-discover --no-refresh      # turn automatic crawling off
 python -m clea search "flask blueprints"
 python -m clea stats
 python -m clea export frontend/public/data     # static index for the browser
@@ -102,7 +109,9 @@ All settings are environment variables:
 | `CLEA_CORS_ORIGINS` | | Browser origins allowed to call the API from another site |
 | `CLEA_CRAWLER_CONTACT` | | URL or email added to the crawler's User-Agent so site owners can reach you |
 | `CLEA_MIN_DELAY` | `1.0` | Minimum seconds between requests to the same host |
-| `CLEA_RECRAWL_HOURS` | `0` | Recrawl every site this often (0 = off) |
+| `CLEA_CRAWL_WORKERS` | `4` | Sites (hosts) crawled in parallel, until changed in the admin panel |
+| `CLEA_DISCOVER_MINUTES` | `0` | Look for new pages this often (0 = off), until changed in the admin panel |
+| `CLEA_RECRAWL_HOURS` | `0` | Refresh every page this often (0 = off), until changed in the admin panel |
 | `CLEA_REQUEST_TIMEOUT` | `15` | Per-request timeout in seconds |
 | `CLEA_MAX_PAGE_BYTES` | `5242880` | Pages larger than this are skipped |
 | `CLEA_STATIC_DIR` | `frontend/dist` | Built web app to serve |
@@ -115,7 +124,8 @@ docker compose up -d
 ```
 
 Open <http://localhost:6942> and enter the token under **Settings** (or when the admin panel asks). The index is
-kept in the `clea-data` volume, and sites are recrawled weekly by default (`CLEA_RECRAWL_HOURS`).
+kept in the `clea-data` volume. By default Compose turns on automatic crawling: new pages hourly and a full refresh
+weekly (`CLEA_DISCOVER_MINUTES`, `CLEA_RECRAWL_HOURS`). You can change both in the admin panel.
 
 ## GitHub Pages demo
 
@@ -139,6 +149,28 @@ python -m clea export frontend/public/data
 cd frontend && npm run dev:static
 ```
 
+## Automatic crawling
+
+Open the admin panel (sitemap icon) → **Automatic crawling**:
+
+- **Look for new pages every …** (minimum 5 minutes) re-reads each site's start page, plus its sitemaps at most every
+  6 hours. Newly linked pages are crawled, and pages whose sitemap `<lastmod>` is newer than Clea's copy are fetched
+  again. Unchanged pages answer `304 Not Modified`, so a check of an unchanged site usually costs one small request.
+- **Refresh every page every …** (minimum 1 hour) re-checks every known page, so edits and deleted pages are picked up.
+- **Stop a scheduled run after …** keeps runs bounded. Sites crawled longest ago go first, so every site gets its turn.
+- **Sites crawled in parallel** sets how many websites are crawled at once. Requests to any one website are never
+  parallel, and each one waits `CLEA_MIN_DELAY` (or the site's robots.txt `Crawl-delay`) between requests.
+
+The schedule runs inside `python -m clea serve`. Intervals count from the end of the previous run, and the run
+history is stored in the database. A restart therefore doesn't trigger extra runs, and a run that came due while
+Clea was off happens once, shortly after it starts. Use a site's **⋯ → Include in automatic crawls** to leave it
+out.
+
+When a site reaches its **Max pages**, Clea keeps its existing pages up to date but queues newly found pages without
+downloading them. The site shows *page limit reached*; raise the limit to index the waiting pages.
+
+On the GitHub Pages demo there is no server, so the equivalent is the workflow's `schedule:` cron.
+
 ## How it works
 
 ```
@@ -146,7 +178,8 @@ clea/
   glaneur.py   crawler: frontier, robots.txt, politeness, redirects, sitemaps   (French: "gatherer")
   classeur.py  HTML → title/description/main text/links; writes documents       ("organiser")
   servir.py    query parsing, FTS5/BM25 search, snippets, suggestions, stats    ("to serve")
-  sites.py     site management          jobs.py    background crawl jobs
+  sites.py     site management          jobs.py    background crawl jobs + scheduler
+  schedule.py  automatic crawling settings and "is a run due?"
   server.py    Flask API + web app      cli.py     command line
   db.py        schema & migrations      export.py  static index for GitHub Pages
 frontend/src/
@@ -171,7 +204,8 @@ because the old index can't be converted. The old file is left untouched.
 | `GET /api/stats` | Index statistics |
 | `GET/POST /api/sites`, `PATCH/DELETE /api/sites/<id>` | Manage sites (admin) |
 | `GET /api/sites/<id>/urls?status=failed` | Crawl problems for a site (admin) |
-| `POST /api/crawl` `{site_ids?, recrawl?}` | Start a crawl job (admin) |
+| `POST /api/crawl` `{site_ids?, mode?: "new" \| "recrawl"}` | Start a crawl job (admin) |
+| `GET/PUT /api/crawl/settings` | Automatic crawling and parallelism settings, plus next/last run times (admin) |
 | `GET /api/jobs`, `GET /api/jobs/<id>`, `POST /api/jobs/<id>/cancel` | Job progress (admin) |
 
 ## Development

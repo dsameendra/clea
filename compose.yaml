@@ -10,7 +10,9 @@ services:
       - "127.0.0.1:6942:6942" # drop "127.0.0.1:" to expose on your network
     environment:
       CLEA_ADMIN_TOKEN: ${CLEA_ADMIN_TOKEN:?Set CLEA_ADMIN_TOKEN in .env (see compose.yaml)}
-      CLEA_RECRAWL_HOURS: ${CLEA_RECRAWL_HOURS:-168} # recrawl weekly
+      # Defaults for automatic crawling (change them later in the admin panel):
+      CLEA_DISCOVER_MINUTES: ${CLEA_DISCOVER_MINUTES:-60} # look for new pages hourly
+      CLEA_RECRAWL_HOURS: ${CLEA_RECRAWL_HOURS:-168} # refresh every page weekly
       CLEA_CRAWLER_CONTACT: ${CLEA_CRAWLER_CONTACT:-}
     volumes:
       - clea-data:/data

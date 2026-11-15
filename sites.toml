@@ -3,7 +3,8 @@
 #
 # Each seed URL is crawled within its host and below its directory, e.g.
 # https://docs.python.org/3/tutorial/ stays inside /3/tutorial/.
-# Keep the totals modest: the whole index is downloaded by the browser.
+# Keep the totals modest: the whole index is downloaded by the browser
+# (roughly 6 KB per page before compression; ~400 pages is about 2.4 MB).
 
 [defaults]
 max_pages = 60
@@ -14,6 +15,7 @@ url = "https://docs.python.org/3/tutorial/"
 
 [[site]]
 url = "https://flask.palletsprojects.com/en/stable/"
+max_pages = 120
 
 [[site]]
 url = "https://react.dev/learn"
@@ -22,5 +24,5 @@ max_pages = 80
 
 [[site]]
 url = "https://sqlite.org/docs.html"
-max_pages = 80
+max_pages = 150
 max_depth = 2
