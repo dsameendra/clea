@@ -59,6 +59,7 @@ jobs:
           else
             python -m clea crawl --max-seconds 1800
           fi
+          python -m clea sites list   # per-site results, to spot a site that blocked the crawler
           python -m clea stats
 
       - id: pages
