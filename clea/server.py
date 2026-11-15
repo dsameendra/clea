@@ -13,8 +13,8 @@ from flask import Flask, Response, g, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from . import __version__, servir, sites
-from .config import LOOPBACK_HOSTS, Settings
-from .db import connect, init_db
+from .config import DEFAULT_DB, LEGACY_DB, LOOPBACK_HOSTS, Settings
+from .db import connect, open_database
 from .jobs import JobConflict, JobManager
 
 log = logging.getLogger("clea.server")
@@ -38,9 +38,7 @@ def create_app(settings: Settings | None = None, *, start_jobs: bool = True) -> 
     app.config["CLEA_SETTINGS"] = settings
     app.json.sort_keys = False
 
-    conn = connect(settings.db_path)
-    init_db(conn)
-    conn.close()
+    open_database(settings.db_path, LEGACY_DB if settings.db_path == DEFAULT_DB else None).close()
 
     jobs = JobManager(settings)
     app.extensions["clea_jobs"] = jobs

@@ -156,8 +156,11 @@ frontend/src/
 ```
 
 Documents are stored in SQLite and mirrored into an FTS5 index by triggers, so updates and deletions never leave
-stale entries behind. The database from Clea 1.x is migrated automatically: its sites are kept and their pages are
-crawled again.
+stale entries behind.
+
+**Upgrading from Clea 1.x:** the database moved from `clea_db.db` to `data/clea.db`. The first time Clea 2 creates
+its database it imports the sites from an existing `clea_db.db` in the project folder. Their pages are crawled again,
+because the old index can't be converted. The old file is left untouched.
 
 ### API
 

@@ -272,7 +272,8 @@ class Crawler:
             return
         conn.execute("UPDATE sites SET status = 'crawling', last_error = NULL WHERE id = ?", (site_id,))
         if recrawl:
-            conn.execute("UPDATE urls SET status = 'queued', attempts = 0 WHERE site_id = ? AND status != 'skipped'", (site_id,))
+            # Everything is re-evaluated: robots.txt, noindex, canonical or content may have changed.
+            conn.execute("UPDATE urls SET status = 'queued', attempts = 0 WHERE site_id = ?", (site_id,))
         conn.execute(
             "INSERT INTO urls (site_id, url, depth, status, discovered_at) VALUES (?, ?, 0, 'queued', ?) "
             "ON CONFLICT(url) DO NOTHING",
@@ -289,8 +290,14 @@ class Crawler:
             while fetched < budget:
                 if self.cancel.is_set():
                     raise Cancelled()
+                # Once the site has max_pages documents, only refresh existing ones; new URLs stay
+                # queued (without being fetched) until the limit is raised.
+                full = conn.execute("SELECT COUNT(*) FROM documents WHERE site_id = ?", (site_id,)).fetchone()[0] >= site["max_pages"]
                 row = conn.execute(
-                    "SELECT * FROM urls WHERE site_id = ? AND status = 'queued' ORDER BY depth, id LIMIT 1", (site_id,)
+                    """SELECT u.* FROM urls u WHERE u.site_id = ? AND u.status = 'queued'
+                       AND (? OR EXISTS (SELECT 1 FROM documents d WHERE d.url_id = u.id))
+                       ORDER BY u.depth, u.id LIMIT 1""",
+                    (site_id, not full),
                 ).fetchone()
                 if row is None:
                     break
@@ -395,8 +402,7 @@ class Crawler:
             self._set_url(target["id"], "skipped", "no readable text", **meta)
             self._bump("pages_skipped", final)
         elif not self._has_room(site, target["id"]):
-            self._set_url(target["id"], "skipped", "site page limit reached", **meta)
-            self._bump("pages_skipped", final)
+            self._set_url(target["id"], "queued", "waiting: site page limit reached", **meta)
         else:
             indexed, reason = classeur.index_page(self.conn, url_id=target["id"], site_id=site["id"], url=final, page=page)
             self._set_url(target["id"], "done" if indexed else "skipped", reason, **meta)

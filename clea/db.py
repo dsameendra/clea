@@ -145,6 +145,40 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def open_database(db_path: Path | str, legacy_path: Path | None = None) -> sqlite3.Connection:
+    """Open (creating if needed) the database.
+
+    When the database is created for the first time and a Clea 1.x database
+    exists at ``legacy_path``, its sites are imported so they can be re-crawled.
+    """
+    fresh = str(db_path) == ":memory:" or not Path(db_path).exists()
+    conn = connect(db_path)
+    init_db(conn)
+    if fresh and legacy_path is not None and Path(legacy_path).exists():
+        import_legacy_file(conn, Path(legacy_path))
+    return conn
+
+
+def import_legacy_file(conn: sqlite3.Connection, path: Path) -> int:
+    from .sites import add_site  # local import: sites imports db
+
+    legacy = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        if not _table_exists(legacy, "sitemap_urls"):
+            return 0
+        urls = [row[0] for row in legacy.execute("SELECT url FROM sitemap_urls WHERE active")]
+    finally:
+        legacy.close()
+    imported = 0
+    for url in urls:
+        try:
+            add_site(conn, url)
+            imported += 1
+        except ValueError:
+            continue
+    return imported
+
+
 def _import_legacy_sites(conn: sqlite3.Connection) -> None:
     """Carry seed URLs over from the v1 schema (``sitemap_urls``).
 

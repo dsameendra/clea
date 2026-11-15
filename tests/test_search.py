@@ -182,3 +182,21 @@ def test_relaxed_fallback_ignores_stop_words(corpus):
     # "in" and "10" match lots of pages; the fallback should only use meaningful words.
     res = servir.search(corpus, "10 km in pasta")
     assert res["relaxed"] and urls(res) == ["https://blog.example.com/cooking"]
+
+
+def test_v1_database_file_is_imported_into_a_new_database(tmp_path):
+    import sqlite3
+
+    from clea.db import open_database
+
+    old = sqlite3.connect(tmp_path / "clea_db.db")
+    old.executescript("CREATE TABLE sitemap_urls (id INTEGER PRIMARY KEY, url TEXT UNIQUE, active BOOLEAN DEFAULT TRUE);"
+                      "INSERT INTO sitemap_urls (url) VALUES ('https://legacy.example/');")
+    old.commit()
+    old.close()
+    conn = open_database(tmp_path / "data" / "clea.db", tmp_path / "clea_db.db")
+    assert [s["seed_url"] for s in sites.list_sites(conn)] == ["https://legacy.example/"]
+    conn.close()
+    # Not re-imported once the new database exists.
+    conn = open_database(tmp_path / "data" / "clea.db", tmp_path / "clea_db.db")
+    assert len(sites.list_sites(conn)) == 1

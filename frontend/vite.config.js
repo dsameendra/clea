@@ -45,7 +45,10 @@ function opensearch(env) {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
-  const proxy = { "/api": API_TARGET, "/opensearch.xml": API_TARGET };
+  // changeOrigin must stay false: the backend checks that Origin matches Host on writes,
+  // so the browser's Host (localhost:5173) has to reach it unchanged.
+  const target = { target: API_TARGET, changeOrigin: false };
+  const proxy = { "/api": target, "/opensearch.xml": target };
   return {
     base: env.VITE_BASE || "/",
     plugins: [react(), opensearch(env)],

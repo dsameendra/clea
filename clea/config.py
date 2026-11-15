@@ -11,14 +11,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DB = ROOT_DIR / "data" / "clea.db"
+LEGACY_DB = ROOT_DIR / "clea_db.db"  # Clea 1.x database location
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_list(name: str, default: list[str]) -> list[str]:
@@ -30,7 +25,7 @@ def _env_list(name: str, default: list[str]) -> list[str]:
 
 @dataclass
 class Settings:
-    db_path: Path = field(default_factory=lambda: Path(os.environ.get("CLEA_DB", ROOT_DIR / "data" / "clea.db")))
+    db_path: Path = field(default_factory=lambda: Path(os.environ.get("CLEA_DB", DEFAULT_DB)))
     host: str = field(default_factory=lambda: os.environ.get("CLEA_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: int(os.environ.get("CLEA_PORT", "6942")))
     # Token protecting the admin API (sites, crawls, jobs). Required whenever the
@@ -49,7 +44,6 @@ class Settings:
     max_page_bytes: int = field(default_factory=lambda: int(os.environ.get("CLEA_MAX_PAGE_BYTES", str(5 * 1024 * 1024))))
     # Automatically recrawl every site after this many hours (0 disables).
     recrawl_hours: float = field(default_factory=lambda: float(os.environ.get("CLEA_RECRAWL_HOURS", "0")))
-    trust_proxy: bool = field(default_factory=lambda: _env_bool("CLEA_TRUST_PROXY", False))
 
     @property
     def user_agent(self) -> str:

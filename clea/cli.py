@@ -9,14 +9,13 @@ import tomllib
 from pathlib import Path
 
 from . import __version__, glaneur, servir, sites
-from .config import Settings
-from .db import connect, init_db
+from .config import DEFAULT_DB, LEGACY_DB, Settings
+from .db import open_database
 
 
 def _conn(settings: Settings):
-    conn = connect(settings.db_path)
-    init_db(conn)
-    return conn
+    legacy = LEGACY_DB if settings.db_path == DEFAULT_DB else None
+    return open_database(settings.db_path, legacy)
 
 
 def cmd_init(args, settings):

@@ -101,7 +101,8 @@ def test_recrawl_drops_pages_that_disappear(site, conn, settings, crawled):
     del site.routes["/b"]
     glaneur.crawl(conn, settings, recrawl=True)
     assert f"{site.base}/b" not in indexed(conn)
-    assert servir.search(conn, "bravo")["total"] == 0
+    # /dup was skipped as a duplicate of /b; with /b gone, the recrawl indexes it instead.
+    assert [r["url"] for r in servir.search(conn, "bravo")["results"]] == [f"{site.base}/dup"]
 
 
 def test_page_budget(site, conn, settings):
@@ -109,6 +110,26 @@ def test_page_budget(site, conn, settings):
     sites.add_site(conn, site.base + "/", max_pages=3)
     glaneur.crawl(conn, settings)
     assert len(indexed(conn)) <= 3
+
+
+def test_full_site_does_not_fetch_new_pages_until_limit_is_raised(site, conn, settings):
+    build_site(site)
+    s = sites.add_site(conn, site.base + "/", max_pages=3)
+    glaneur.crawl(conn, settings)
+    assert len(indexed(conn)) == 3
+    site.requests.clear()
+    glaneur.crawl(conn, settings)  # site is full: nothing new is fetched
+    assert [p for p in site.paths() if p not in ("/robots.txt", "/sitemap.xml")] == []
+    sites.update_site(conn, s["id"], max_pages=6)
+    glaneur.crawl(conn, settings)
+    assert len(indexed(conn)) == 6
+
+
+def test_recrawl_reevaluates_skipped_pages(site, conn, settings, crawled):
+    # /noindex was skipped; once the page drops its noindex tag a recrawl should index it.
+    site.html("/noindex", page("Hidden", "Now public."))
+    glaneur.crawl(conn, settings, recrawl=True)
+    assert f"{site.base}/noindex" in indexed(conn)
 
 
 def test_robots_server_error_means_disallow(site, conn, settings):
