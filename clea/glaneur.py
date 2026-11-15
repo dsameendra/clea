@@ -324,6 +324,8 @@ class Crawler:
                 [(u, site["id"], m) for u, m in entries if m],
             )
             self.conn.commit()  # never hold the write lock across the next network request
+        if self.cancel.is_set():
+            return added  # cut short: leave sitemap_checked_at alone so they are read next time
         self.conn.execute("UPDATE sites SET sitemap_checked_at = ? WHERE id = ?", (utcnow(), site["id"]))
         self.conn.commit()
         return added
@@ -333,6 +335,10 @@ class Crawler:
     def crawl_site(self, site_id: int, *, mode: str = "new") -> None:
         if mode not in MODES:
             raise ValueError(f"unknown crawl mode {mode!r}")
+        # A cancelled or time-limited run must not touch sites it never got to: no requests,
+        # no status change, and no last_crawled_at, so they go first next time.
+        if self.cancel.is_set():
+            raise Cancelled()
         conn = self.conn
         site = conn.execute("SELECT * FROM sites WHERE id = ?", (site_id,)).fetchone()
         if site is None:

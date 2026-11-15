@@ -333,3 +333,30 @@ def test_parallel_stress_no_lock_errors(conn, settings):
     finally:
         for h in hosts:
             h.close()
+
+
+def test_cancel_leaves_unstarted_sites_untouched(conn, settings):
+    """Sites still waiting for a worker when a crawl is cancelled must not be touched or marked crawled."""
+    from .conftest import FixtureSite
+
+    hosts = [FixtureSite() for _ in range(3)]
+    try:
+        for i, h in enumerate(hosts):
+            simple_site(h, n=5, label=f"host{i}")
+            h.delay = 0.1
+        ids = [sites.add_site(conn, h.base + "/")["id"] for h in hosts]
+        cancel = threading.Event()
+        threading.Timer(0.4, cancel.set).start()
+        with pytest.raises(glaneur.Cancelled):
+            glaneur.crawl(conn, settings, workers=1, cancel=cancel)
+        started = [h for h in hosts if h.paths()]
+        assert len(started) == 1, "only the first host should have been contacted"
+        untouched = [sites.get_site(conn, i) for i, h in zip(ids, hosts, strict=True) if not h.paths()]
+        assert all(s["status"] == "pending" and s["last_crawled_at"] is None for s in untouched)
+        assert all(conn.execute("SELECT sitemap_checked_at FROM sites WHERE id = ?", (s["id"],)).fetchone()[0] is None for s in untouched)
+        # The next run starts with the sites that were never crawled.
+        order = [r["id"] for r in conn.execute("SELECT id FROM sites ORDER BY last_crawled_at IS NOT NULL, last_crawled_at, id")]
+        assert order[:2] == [s["id"] for s in untouched]
+    finally:
+        for h in hosts:
+            h.close()
