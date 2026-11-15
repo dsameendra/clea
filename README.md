@@ -1,17 +1,45 @@
-# Clea: A Search Engine
+<div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
-![React](https://img.shields.io/badge/React-19-61dafb)
-![License](https://img.shields.io/badge/License-MIT-green)
-[![CI](https://github.com/dsameendra/clea/actions/workflows/ci.yml/badge.svg)](https://github.com/dsameendra/clea/actions/workflows/ci.yml)
+<img src="docs/icon.png" width="112" height="112" alt="Clea icon">
 
-> Cléa — from *clé* (key), unlocking answers.
+# Clea
 
-Clea is a small, self-hosted search engine. Give it the sites you care about; it crawls them politely, builds a
-full-text index and gives you a fast, clean search page for them. It also runs as a fully static demo on
-GitHub Pages, with search happening in the browser.
+[![License: MIT](https://img.shields.io/badge/license-MIT-0074e8?style=flat-square)](LICENSE) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-ff8a1f?style=flat-square) ![React 19](https://img.shields.io/badge/react-19-61dafb?style=flat-square) [![CI](https://img.shields.io/github/actions/workflow/status/dsameendra/clea/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/dsameendra/clea/actions/workflows/ci.yml) [![Demo](https://img.shields.io/github/actions/workflow/status/dsameendra/clea/pages.yml?branch=main&style=flat-square&label=demo)](https://dsameendra.github.io/clea/)
 
-![Clea Screenshot](clea_screenshot.png)
+### A search engine for the sites you care about.
+
+Give Clea a list of websites. It crawls them politely, keeps them up to date on its own,
+and gives you a fast, clean search page for just those sites.
+
+_Cléa, from clé (the key). Self-hosted. No ads, no tracking, no API keys._
+
+**[Try the live demo](https://dsameendra.github.io/clea/)**
+
+</div>
+
+Clea is a small, self-hosted search engine with its own crawler. Point it at documentation sites, blogs or shops, and
+it builds a full-text index you can search with phrases, exclusions, `site:` filters, typo suggestions, and a built-in
+calculator and unit converter. It runs as one Python process with a React interface, in Docker, or as a fully static
+copy on GitHub Pages where search happens in your browser.
+
+<div align="center">
+
+**[Features](#features) · [Quick start](#quick-start) · [Automatic crawling](#automatic-crawling) · [Configuration](#configuration) · [Docker](#docker) · [GitHub Pages](#github-pages-demo) · [API](#api)**
+
+</div>
+
+![Clea search results](docs/screenshots/results-dark.png)
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/home-light.png" alt="Clea home page in light mode"></td>
+    <td width="50%"><img src="docs/screenshots/admin-dark.png" alt="Managing sites and automatic crawling"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Light mode</sub></td>
+    <td align="center"><sub>Sites, crawls and automatic crawling</sub></td>
+  </tr>
+</table>
 
 ## Features
 
@@ -47,28 +75,35 @@ GitHub Pages, with search happening in the browser.
 
 ## Quick start
 
-Requirements: Python 3.11+ and Node.js 20+.
+Requirements: Python 3.11+ and Node.js 20+ (macOS or Linux; on Windows use Docker or the manual steps below).
 
 ```bash
 git clone https://github.com/dsameendra/clea.git
 cd clea
-
-# Backend
-python3 -m venv .venv
-source .venv/bin/activate            # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-# Frontend
-cd frontend && npm install && npm run build && cd ..
-
-# Run
-python -m clea serve
+./start.sh     # first run sets everything up, then Clea runs in the background
+./stop.sh      # stop it
 ```
 
 Open <http://localhost:6942>, click the **sitemap** icon, add a site (for example
 `https://docs.python.org/3/tutorial/`) and press **Crawl new pages**. Results become searchable as pages are indexed.
+To load the demo's site list instead, run `.venv/bin/python -m clea sites import sites.toml`.
 
-To load the demo's site list instead: `python -m clea sites import sites.toml`.
+`./start.sh` creates a virtualenv in `.venv`, installs the Python packages, builds the web interface when its sources
+changed, and starts the server, with the log in `data/clea.log`. It accepts the same `CLEA_*` settings as the server,
+for example `CLEA_PORT=8080 ./start.sh`.
+
+<details>
+<summary>Manual setup</summary>
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+cd frontend && npm ci && npm run build && cd ..
+python -m clea serve
+```
+
+</details>
 
 ### Developing the frontend
 
@@ -129,7 +164,8 @@ weekly (`CLEA_DISCOVER_MINUTES`, `CLEA_RECRAWL_HOURS`). You can change both in t
 
 ## GitHub Pages demo
 
-GitHub Pages only serves static files, so the demo works differently from a self-hosted Clea:
+The live demo at **<https://dsameendra.github.io/clea/>** searches the Python tutorial and the Flask, React and SQLite
+docs. GitHub Pages only serves static files, so the demo works differently from a self-hosted Clea:
 
 1. `.github/workflows/pages.yml` runs the Python crawler on the sites in [`sites.toml`](sites.toml) (on every push to
    `main`, weekly, or on demand).

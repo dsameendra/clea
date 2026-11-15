@@ -185,27 +185,30 @@ export function AutomationPanel({ refreshKey, onError }) {
             <ScheduleStatus info={data.schedule.refresh} />
           </div>
 
-          <Group gap="md" align="flex-start" wrap="wrap">
-            <NumberInput
-              label="Stop a scheduled run after"
-              rightSection={<Text size="xs" c="dimmed" pr={28}>min</Text>}
-              rightSectionWidth={60}
-              w={200}
-              min={limits.max_run_minutes.min}
-              max={limits.max_run_minutes.max}
-              value={form.max_run_minutes}
-              onChange={(v) => set({ max_run_minutes: v })}
-            />
-            <NumberInput
-              label="Sites crawled in parallel"
-              description="Each site still gets one request at a time"
-              w={220}
-              min={limits.workers.min}
-              max={limits.workers.max}
-              value={form.workers}
-              onChange={(v) => set({ workers: v })}
-            />
-          </Group>
+          <div>
+            <Group gap="md" align="flex-end" wrap="wrap">
+              <NumberInput
+                label="Stop a scheduled run after"
+                suffix=" min"
+                w={200}
+                min={limits.max_run_minutes.min}
+                max={limits.max_run_minutes.max}
+                value={form.max_run_minutes}
+                onChange={(v) => set({ max_run_minutes: v })}
+              />
+              <NumberInput
+                label="Sites crawled in parallel"
+                w={200}
+                min={limits.workers.min}
+                max={limits.workers.max}
+                value={form.workers}
+                onChange={(v) => set({ workers: v })}
+              />
+            </Group>
+            <Text size="xs" c="dimmed" mt={4}>
+              Different sites are crawled at the same time; each site still gets one request at a time.
+            </Text>
+          </div>
 
           {error && (
             <Alert color="red" variant="light" p="xs">

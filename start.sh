@@ -13,7 +13,7 @@ PORT="${CLEA_PORT:-6942}"
 mkdir -p data
 
 if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-  echo "Clea is already running at http://localhost:$PORT (pid $(cat "$PID_FILE"))."
+  echo "Clea is already running at http://localhost:$(cat data/clea.port 2>/dev/null || echo "$PORT") (pid $(cat "$PID_FILE"))."
   exit 0
 fi
 
@@ -45,6 +45,7 @@ fi
 echo "Starting Clea…"
 nohup .venv/bin/python -m clea serve >>"$LOG_FILE" 2>&1 &
 echo $! >"$PID_FILE"
+echo "$PORT" >data/clea.port
 
 for _ in $(seq 1 60); do
   if curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
