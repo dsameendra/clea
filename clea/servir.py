@@ -29,7 +29,7 @@ STOP_WORDS = frozenset(
     "there these they this to was what when where which who why will with you your".split()
 )
 # BM25 column weights: title, description, body, url_terms.
-BM25_WEIGHTS = (10.0, 4.0, 1.0, 3.0)
+BM25_WEIGHTS = (20.0, 4.0, 1.0, 6.0)
 
 
 @dataclass
