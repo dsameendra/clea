@@ -23,6 +23,8 @@ import {
 } from "@mantine/core";
 import {
   IconAlertTriangle,
+  IconCheck,
+  IconClockPause,
   IconDots,
   IconPlayerPlay,
   IconPlayerStop,
@@ -32,6 +34,7 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import { AutomationPanel } from "./AutomationPanel.jsx";
 import { save } from "../lib/storage.js";
 import { timeAgo } from "../lib/time.js";
 
@@ -76,10 +79,17 @@ function JobCard({ job, onCancel }) {
     <div className="glass" style={{ padding: 14 }}>
       <Group justify="space-between" mb={6}>
         <Group gap={8}>
-          <Text fw={600}>Crawl #{job.id}</Text>
+          <Text fw={600}>
+            {job.params?.mode === "recrawl" ? "Refresh" : "New pages"} #{job.id}
+          </Text>
           <Badge color={JOB_COLORS[job.status] || "gray"} variant="light">
             {job.status}
           </Badge>
+          {job.params?.reason?.startsWith("scheduled") && (
+            <Badge color="gray" variant="outline" leftSection={<IconClockPause size={12} />}>
+              scheduled
+            </Badge>
+          )}
         </Group>
         {active && (
           <Button size="xs" variant="light" color="red" leftSection={<IconPlayerStop size={14} />} onClick={() => onCancel(job.id)}>
@@ -206,6 +216,24 @@ function SiteRow({ site, busy, onCrawl, onRemove, onUpdate, onShowProblems }) {
               {site.path_prefix !== "/" && ` · within ${site.path_prefix}`}
               {site.queued > 0 && ` · ${site.queued} queued`} · crawled {timeAgo(site.last_crawled_at)}
             </Text>
+            {site.at_limit && (
+              <Tooltip
+                label={`Clea stopped adding pages at the ${site.max_pages}-page limit${site.queued ? `; ${site.queued} found pages are waiting` : ""}. Raise “Max pages” to index more.`}
+                multiline
+                maw={300}
+              >
+                <Badge color="yellow" variant="light">
+                  page limit reached
+                </Badge>
+              </Tooltip>
+            )}
+            {!site.auto_crawl && (
+              <Tooltip label="Left out of automatic crawls" withArrow>
+                <Badge color="gray" variant="outline">
+                  manual only
+                </Badge>
+              </Tooltip>
+            )}
             {site.failed > 0 && (
               <Anchor component="button" type="button" size="xs" c="red" onClick={() => onShowProblems(site)}>
                 {site.failed} failed
@@ -228,7 +256,13 @@ function SiteRow({ site, busy, onCrawl, onRemove, onUpdate, onShowProblems }) {
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Item leftSection={<IconRefresh size={16} />} disabled={busy} onClick={() => onCrawl([site.id], true)}>
-                Recrawl all pages
+                Refresh all pages
+              </Menu.Item>
+              <Menu.Item
+                leftSection={site.auto_crawl ? <IconCheck size={16} /> : <span style={{ width: 16 }} />}
+                onClick={() => onUpdate(site.id, { auto_crawl: !site.auto_crawl })}
+              >
+                Include in automatic crawls
               </Menu.Item>
               <Menu.Item leftSection={<IconAlertTriangle size={16} />} onClick={() => onShowProblems(site)}>
                 Failed &amp; skipped pages
@@ -256,6 +290,7 @@ export function AdminDrawer({ opened, onClose, onIndexChanged }) {
   const [addErrors, setAddErrors] = useState([]);
   const [confirmRemove, setConfirmRemove] = useState(null);
   const [problemsSite, setProblemsSite] = useState(null);
+  const [scheduleKey, setScheduleKey] = useState(0);
 
   const activeJob = jobs.find(isActive);
 
@@ -276,23 +311,27 @@ export function AdminDrawer({ opened, onClose, onIndexChanged }) {
     if (opened) refresh();
   }, [opened, refresh]);
 
-  // Poll while a crawl is running; refresh the index stats when it finishes.
+  // Poll every second while a crawl runs, and every few seconds otherwise so crawls started by
+  // the scheduler show up. When a crawl finishes, refresh sites, schedule and index stats.
+  const activeId = activeJob?.id;
   useEffect(() => {
-    if (!opened || !activeJob) return undefined;
+    if (!opened || needsToken) return undefined;
     const timer = setInterval(async () => {
       try {
         const latest = await api.jobs();
         setJobs(latest);
-        if (!latest.some(isActive)) {
+        const nowActive = latest.find(isActive)?.id;
+        if (nowActive !== activeId) {
           setSites(await api.sites());
-          onIndexChanged?.();
+          setScheduleKey((k) => k + 1);
+          if (!nowActive) onIndexChanged?.();
         }
       } catch {
         /* transient; keep polling */
       }
-    }, 1000);
+    }, activeId ? 1000 : 5000);
     return () => clearInterval(timer);
-  }, [opened, activeJob, onIndexChanged]);
+  }, [opened, needsToken, activeId, onIndexChanged]);
 
   const run = async (fn) => {
     setError(null);
@@ -324,7 +363,7 @@ export function AdminDrawer({ opened, onClose, onIndexChanged }) {
     setAdding(false);
   };
 
-  const crawl = (siteIds, recrawl) => run(() => api.crawl({ site_ids: siteIds, recrawl }));
+  const crawl = (siteIds, recrawl) => run(() => api.crawl({ site_ids: siteIds, mode: recrawl ? "recrawl" : "new" }));
 
   return (
     <Drawer opened={opened} onClose={onClose} title={<Title order={3}>Manage index</Title>} position="right" size="xl" padding="lg">
@@ -385,7 +424,7 @@ export function AdminDrawer({ opened, onClose, onIndexChanged }) {
                 >
                   Crawl new pages
                 </Button>
-                <Tooltip label="Re-fetch every known page (unchanged pages are cheap: Clea uses conditional requests)" multiline maw={260}>
+                <Tooltip label="Re-check every known page (unchanged pages are cheap: Clea uses conditional requests)" multiline maw={260}>
                   <Button
                     size="xs"
                     variant="light"
@@ -393,7 +432,7 @@ export function AdminDrawer({ opened, onClose, onIndexChanged }) {
                     disabled={!!activeJob || !sites?.length}
                     onClick={() => crawl(null, true)}
                   >
-                    Recrawl everything
+                    Refresh everything
                   </Button>
                 </Tooltip>
               </Group>
@@ -410,6 +449,8 @@ export function AdminDrawer({ opened, onClose, onIndexChanged }) {
               )}
             </Stack>
           </section>
+
+          <AutomationPanel refreshKey={scheduleKey} onError={(err) => (err.status === 401 ? setNeedsToken(true) : setError(err.message))} />
 
           <section>
             <Title order={5} mb="sm">

@@ -11,6 +11,14 @@ const STOP_WORDS = new Set(
     "there these they this to was what when where which who why will with you your").split(" "),
 );
 const MAX_PER_PAGE = 50;
+// Same demotion as the server (clea/servir.py): pages that are mostly links rank lower.
+const LINK_DENSITY_THRESHOLD = 0.5;
+const LINK_PENALTY_SLOPE = 1.5;
+const MAX_LINK_PENALTY = 0.6;
+
+export function linkPenalty(density = 0) {
+  return 1 - Math.min(MAX_LINK_PENALTY, Math.max(0, density - LINK_DENSITY_THRESHOLD) * LINK_PENALTY_SLOPE);
+}
 
 function urlTerms(url) {
   try {
@@ -54,7 +62,10 @@ export function createEngine(data) {
     fields: ["title", "description", "body", "urlTerms"],
     extractField: (doc, field) => (field === "urlTerms" ? urlTerms(doc.url) : doc[field]),
     processTerm,
-    searchOptions: { boost: { title: 4, description: 2, urlTerms: 2 } },
+    searchOptions: {
+      boost: { title: 4, description: 2, urlTerms: 2 },
+      boostDocument: (id) => linkPenalty(docs.get(id)?.link_density),
+    },
   });
   index.addAll(documents);
 

@@ -107,3 +107,21 @@ describe("relaxed fallback", () => {
     expect(urls(res)).toEqual(["https://blog.example.com/cooking"]);
   });
 });
+
+describe("link-heavy pages", () => {
+  // Two identical pages that differ only in link density: the link-heavy one must rank second,
+  // whichever order they were indexed in (without the penalty they would tie and keep index order).
+  const make = (densityA, densityB) =>
+    createEngine({
+      documents: [
+        { id: 1, url: "https://d.org/a", host: "d.org", title: "Widget functions", description: "", body: "widget function notes", indexed_at: "", link_density: densityA },
+        { id: 2, url: "https://d.org/b", host: "d.org", title: "Widget functions", description: "", body: "widget function notes", indexed_at: "", link_density: densityB },
+      ],
+      words: [],
+    });
+
+  it("rank below otherwise identical pages", () => {
+    expect(make(0.95, 0.05).search("widget function").results[0].url).toBe("https://d.org/b");
+    expect(make(0.05, 0.95).search("widget function").results[0].url).toBe("https://d.org/a");
+  });
+});

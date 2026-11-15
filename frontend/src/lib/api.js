@@ -42,6 +42,8 @@ export const api = {
   removeSite: (id) => request(`/sites/${id}`, { method: "DELETE" }),
   siteUrls: (id, status) => request(`/sites/${id}/urls?${new URLSearchParams(status ? { status } : {})}`).then((d) => d.urls),
   crawl: (body) => request("/crawl", { method: "POST", body }).then((d) => d.job),
+  crawlSettings: () => request("/crawl/settings"),
+  saveCrawlSettings: (patch) => request("/crawl/settings", { method: "PUT", body: patch }),
   jobs: () => request("/jobs").then((d) => d.jobs),
   cancelJob: (id) => request(`/jobs/${id}/cancel`, { method: "POST", body: {} }).then((d) => d.job),
 };
