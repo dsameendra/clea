@@ -1,0 +1,32 @@
+[project]
+name = "clea"
+version = "2.0.0"
+description = "A small, self-hosted search engine with its own crawler"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+  "flask>=3.0,<4",
+  "requests>=2.31,<3",
+  "beautifulsoup4>=4.12,<5",
+  "protego>=0.3,<1",
+  "waitress>=3.0,<4",
+]
+
+[project.scripts]
+clea = "clea.cli:main"
+
+[tool.setuptools]
+packages = ["clea"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
