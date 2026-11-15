@@ -23,6 +23,11 @@ MAX_PER_PAGE = 50
 MARK_START = "\u0002"
 MARK_END = "\u0003"
 TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# Words too common to justify a match on their own in "any word" fallback mode.
+STOP_WORDS = frozenset(
+    "a an and are as at be but by for from how if in into is it its no not of on or so such that the their then "
+    "there these they this to was what when where which who why will with you your".split()
+)
 # BM25 column weights: title, description, body, url_terms.
 BM25_WEIGHTS = (10.0, 4.0, 1.0, 3.0)
 
@@ -93,7 +98,11 @@ def _quote(token: str) -> str:
 
 def build_match(q: ParsedQuery, *, any_term: bool = False) -> str | None:
     """Translate a parsed query into an FTS5 MATCH expression (every token quoted)."""
-    positives = [_quote(t) for t in q.terms] + [_quote(p) for p in q.phrases]
+    terms = q.terms
+    if any_term:
+        meaningful = [t for t in terms if t.lower().rstrip("*") not in STOP_WORDS and not t.isdigit()]
+        terms = meaningful if meaningful or q.phrases else terms
+    positives = [_quote(t) for t in terms] + [_quote(p) for p in q.phrases]
     joiner = " OR " if any_term else " AND "
     parts = []
     if positives:

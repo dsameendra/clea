@@ -170,3 +170,15 @@ def test_legacy_v1_database_is_migrated(tmp_path):
     assert [s["seed_url"] for s in sites.list_sites(conn)] == ["https://kept.example/"]
     init_db(conn)  # idempotent
     assert len(sites.list_sites(conn)) == 1
+
+
+def test_permalink_symbols_are_not_indexed():
+    p = classeur.extract('<html><body><main><h2>Install<a class="headerlink" href="#install">¶</a></h2>'
+                         '<p>Run pip install. <a href="#x">#</a></p></main></body></html>')
+    assert "¶" not in p.body and "#" not in p.body and "Install" in p.body
+
+
+def test_relaxed_fallback_ignores_stop_words(corpus):
+    # "in" and "10" match lots of pages; the fallback should only use meaningful words.
+    res = servir.search(corpus, "10 km in pasta")
+    assert res["relaxed"] and urls(res) == ["https://blog.example.com/cooking"]

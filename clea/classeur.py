@@ -29,6 +29,7 @@ BLOCK_TAGS = {
     "h1", "h2", "h3", "h4", "h5", "h6", "pre", "blockquote", "figure", "figcaption", "br", "hr",
 }
 
+PERMALINK_SYMBOLS = {"¶", "#", "§", "🔗"}
 WORD_RE = re.compile(r"[^\W\d_]{3,24}")
 MAX_VOCAB_PER_DOC = 3000
 
@@ -105,6 +106,10 @@ def extract(html: str) -> Page:
         tag.decompose()
     for tag in soup.find_all(attrs={"aria-hidden": "true"}):
         tag.decompose()
+    # Heading permalink anchors ("¶", "#", "🔗") added by Sphinx, MkDocs and friends.
+    for a in soup.find_all("a"):
+        if a.get_text(strip=True) in PERMALINK_SYMBOLS or "headerlink" in (a.get("class") or []):
+            a.decompose()
 
     container = soup.find("main") or soup.find(attrs={"role": "main"}) or soup.find("article")
     if container is None or len(container.get_text(strip=True)) < 200:
