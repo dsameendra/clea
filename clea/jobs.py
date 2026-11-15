@@ -197,7 +197,10 @@ class JobManager:
                 if counts.get("errors"):
                     message += f" · {counts['errors']} worker(s) failed, see the server log"
             except glaneur.Cancelled:
-                status, message = "cancelled", "Cancelled"
+                if self._stop.is_set():
+                    status, message = "interrupted", "Server stopped during the crawl; the next crawl continues from here"
+                else:
+                    status, message = "cancelled", "Cancelled"
             except Exception as exc:
                 log.exception("crawl job %s failed", job_id)
                 status, message, error = "failed", "Failed", f"{type(exc).__name__}: {exc}"

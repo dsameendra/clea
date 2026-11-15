@@ -21,7 +21,8 @@ if ! ps -p "$PID" -o command= | grep -q "clea serve"; then
 fi
 
 kill "$PID"
-for _ in $(seq 1 20); do
+# A running crawl stops at its next request; allow for one in-flight request (15 s timeout).
+for _ in $(seq 1 60); do
   if ! kill -0 "$PID" 2>/dev/null; then
     rm -f "$PID_FILE" data/clea.port
     echo "Clea stopped. (Pages already crawled are saved; the next crawl picks up the rest.)"
@@ -31,4 +32,4 @@ for _ in $(seq 1 20); do
 done
 kill -9 "$PID" 2>/dev/null || true
 rm -f "$PID_FILE" data/clea.port
-echo "Clea stopped (forced after 10 s)."
+echo "Clea stopped (forced after 30 s)."

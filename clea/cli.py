@@ -33,8 +33,13 @@ def cmd_serve(args, settings):
     from .server import create_app
 
     app = create_app(settings)
-    # Exit cleanly on `kill` / ./stop.sh; an interrupted crawl is marked as such on the next start.
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    # Exit cleanly on `kill` / ./stop.sh: cancel a running crawl first (its worker threads would
+    # otherwise keep the process alive until the crawl finished). Progress is saved per page.
+    def _shutdown(*_):
+        app.extensions["clea_jobs"].stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown)
     url = f"http://{'localhost' if settings.is_loopback else settings.host}:{settings.port}"
     print(f"Clea {__version__} serving on {url}  (database: {settings.db_path})")
     if args.dev:
